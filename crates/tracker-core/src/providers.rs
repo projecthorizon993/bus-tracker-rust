@@ -223,9 +223,18 @@ fn bus_from_json_value(v: &serde_json::Value) -> Option<Bus> {
 
 /// Extract ZIP URL from API response
 fn extract_zip_url(text: &str) -> Option<String> {
-    // Look for common URL patterns
-    let re = regex_lite::Regex::new(r"https?://[^\"'\s]+zip[^\"'\s]*").ok()?;
-    re.find(text).map(|m| m.as_str().to_string())
+    let lower = text.to_lowercase();
+    let zip_pos = lower.find(".zip")?;
+    let start = text[..zip_pos].rfind("http").unwrap_or(0);
+    let end = text[zip_pos..]
+        .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == '<' || c == '>')
+        .unwrap_or(text.len() - zip_pos);
+    let url = &text[start..zip_pos + 4];
+    if url.starts_with("http") {
+        Some(url.to_string())
+    } else {
+        None
+    }
 }
 
 /// Download and parse AES-encrypted ZIP from VinBus
@@ -358,25 +367,3 @@ impl Provider for IhanoiProvider {
     }
 }
 
-// Small regex crate fallback - if regex_lite isn't available, we use a simple string search
-mod regex_lite {
-    pub struct Regex(String);
-    impl Regex {
-        pub fn new(pattern: &str) -> Result<Self, ()> {
-            Ok(Self(pattern.to_string()))
-        }
-        pub fn find(&self, text: &str) -> Option<std::ops::Range<usize>> {
-            // Very simple "contains https and zip" search
-            let lower = text.to_lowercase();
-            if lower.contains("zip") && lower.contains("http") {
-                // Find the URL start
-                if let Some(start) = text.find("http") {
-                    let end = text[start..].find(|c: char| c == '"' || c == '\'' || c == ' ' || c == '<')
-                        .unwrap_or(text.len() - start);
-                    return Some(start..start + end);
-                }
-            }
-            None
-        }
-    }
-}
