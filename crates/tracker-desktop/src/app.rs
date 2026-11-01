@@ -193,7 +193,7 @@ impl TrackerApp {
         let compute_btn = egui::Button::new("Compute ETA");
         if ui.add_enabled(can_compute, compute_btn).clicked() {
             let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string();
-            self.compute_eta(&provider_id);
+            self.compute_eta(provider_id);
         }
 
         if ui.button("← Back to providers").clicked() {
@@ -340,7 +340,7 @@ impl TrackerApp {
         let buses = provider.fetch_buses(&region).unwrap_or_default();
         self.buses = buses;
         if self.selected_origin.is_some() && self.selected_dest.is_some() {
-            self.compute_eta(provider_id);
+            self.compute_eta(provider_id.to_string());
         }
         self.status_message = format!("Refreshed: {} buses", self.buses.len());
     }
@@ -359,7 +359,7 @@ impl TrackerApp {
         ctx.request_repaint();
     }
 
-    fn compute_eta(&mut self, provider_id: &str) {
+    fn compute_eta(&mut self, provider_id: String) {
         let Some(origin_idx) = self.selected_origin else { return };
         let Some(dest_idx) = self.selected_dest else { return };
         if origin_idx == dest_idx {
