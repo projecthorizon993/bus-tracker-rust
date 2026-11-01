@@ -114,12 +114,13 @@ impl EtaEngine {
         };
 
         // Congestion multiplier
-        let congestion = congestion.unwrap_or(&CongestionInfo {
+        let default_congestion = CongestionInfo {
             level: 2,
             label: "Unknown".to_string(),
             color: "#8E8E93".to_string(),
             multiplier: 1.3,
-        });
+        };
+        let congestion = congestion.unwrap_or(&default_congestion);
 
         // Base seconds = distance_km / speed_kmh * 3600
         let distance_km = along_route.bus_to_dest_meters / 1000.0;
