@@ -119,10 +119,15 @@ impl TrackerApp {
         ui.add_space(5.0);
 
         // Region selector
+        let region_label = format!(
+            "{} ({})",
+            self.selected_region.to_uppercase(),
+            provider.name()
+        );
         ui.horizontal(|ui| {
             ui.label("Region:");
             egui::ComboBox::from_label("")
-                .selected_text(format!("{} ({})", self.selected_region.to_uppercase(), provider.name()))
+                .selected_text(&region_label)
                 .show_ui(ui, |ui| {
                     if ui.selectable_label(self.selected_region == "hn", "Hanoi (hn)").clicked() {
                         self.selected_region = "hn".to_string();
