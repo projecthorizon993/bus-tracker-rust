@@ -1,7 +1,8 @@
 use crate::models::{
-    Bus, CongestionInfo, ProviderConfig, PROVIDERS, VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD,
+    Bus, CongestionInfo, ProviderConfig, PROVIDERS,
 };
 use crate::models::Coord;
+use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -226,7 +227,7 @@ fn extract_zip_url(text: &str) -> Option<String> {
     let lower = text.to_lowercase();
     let zip_pos = lower.find(".zip")?;
     let start = text[..zip_pos].rfind("http").unwrap_or(0);
-    let end = text[zip_pos..]
+    let _end = text[zip_pos..]
         .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == '<' || c == '>')
         .unwrap_or(text.len() - zip_pos);
     let url = &text[start..zip_pos + 4];
@@ -255,9 +256,6 @@ fn fetch_vinbus_zip(client: &Client, zip_url: &str) -> Result<Vec<Bus>, Provider
     let mut buses = Vec::new();
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| ProviderError::Zip(e.to_string()))?;
-        if file.is_encrypted() {
-            continue; // AES encrypted - cannot decrypt with standard zip crate
-        }
         let mut contents = String::new();
         std::io::Read::read_to_string(&mut file, &mut contents).ok();
         if let Ok(parsed) = parse_vinbus_json(&contents) {
@@ -297,8 +295,10 @@ impl Provider for GsmProvider {
     fn fetch_stations(&self, _region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
         Ok(vec![])
     }
+}
 
-    // GSM-specific: get location for a device
+/// GSM-specific: get location for a device (inherent method, not part of Provider trait)
+impl GsmProvider {
     pub fn get_device_location(&self, device_id: &str) -> Result<serde_json::Value, ProviderError> {
         let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
@@ -343,7 +343,7 @@ impl Provider for IhanoiProvider {
         let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
         let url = "https://cds.hanoi.gov.vn/api/1.0/public/video-wall-cameras-v2?page=1&refresh=0";
-        let resp: serde_json::Value = client
+        let _resp: serde_json::Value = client
             .get(url)
             .header("Accept", "application/json")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
