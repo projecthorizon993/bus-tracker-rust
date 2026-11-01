@@ -127,7 +127,7 @@ pub struct ProviderConfig {
     pub id: &'static str,
     pub name: &'static str,
     pub base_url: &'static str,
-    pub regions: &'[&'static str],
+    pub regions: &[&'static str],
 }
 
 /// All providers extracted from decompiled apps
