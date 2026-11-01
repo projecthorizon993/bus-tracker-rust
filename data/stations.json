@@ -1,0 +1,58 @@
+[
+  {
+    "id": "hn_001",
+    "name": "Bến Xe Yên Nghĩa",
+    "coord": { "lat": 20.9360, "lng": 105.7520 },
+    "region": "hn",
+    "provider": "vinbus"
+  },
+  {
+    "id": "hn_002",
+    "name": "Bến Xe Mỹ Đình",
+    "coord": { "lat": 21.0570, "lng": 105.7760 },
+    "region": "hn",
+    "provider": "vinbus"
+  },
+  {
+    "id": "hn_003",
+    "name": "Bến Xe Gia Lâm",
+    "coord": { "lat": 21.0450, "lng": 105.8370 },
+    "region": "hn",
+    "provider": "vinbus"
+  },
+  {
+    "id": "hn_004",
+    "name": "Bến Xe Bắc Long Biên",
+    "coord": { "lat": 21.0380, "lng": 105.8570 },
+    "region": "hn",
+    "provider": "vinbus"
+  },
+  {
+    "id": "hn_005",
+    "name": "Bến Xe Bắc Sơn",
+    "coord": { "lat": 21.0200, "lng": 105.8350 },
+    "region": "hn",
+    "provider": "vinbus"
+  },
+  {
+    "id": "hcm_001",
+    "name": "Bến Xe Miền Tây",
+    "coord": { "lat": 10.7560, "lng": 106.6290 },
+    "region": "hcm",
+    "provider": "vinbus"
+  },
+  {
+    "id": "hcm_002",
+    "name": "Bến Xe Miền Đông",
+    "coord": { "lat": 10.8050, "lng": 106.7310 },
+    "region": "hcm",
+    "provider": "vinbus"
+  },
+  {
+    "id": "hcm_003",
+    "name": "Bến Xe Chợ Lớn",
+    "coord": { "lat": 10.7560, "lng": 106.6640 },
+    "region": "hcm",
+    "provider": "vinbus"
+  }
+]

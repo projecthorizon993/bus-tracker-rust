@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tracker-core",
+    "crates/tracker-cli",
+    "crates/tracker-desktop",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"

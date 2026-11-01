@@ -1,0 +1,8 @@
+[package]
+name = "tracker-cli"
+edition = "2021"
+
+[dependencies]
+tracker-core = { path = "../tracker-core" }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }

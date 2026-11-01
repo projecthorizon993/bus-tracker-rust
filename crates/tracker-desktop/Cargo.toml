@@ -1,0 +1,9 @@
+[package]
+name = "tracker-desktop"
+edition = "2021"
+
+[dependencies]
+tracker-core = { path = "../tracker-core" }
+eframe = "0.26"
+egui = "0.26"
+tokio = { version = "1", features = ["full"] }
