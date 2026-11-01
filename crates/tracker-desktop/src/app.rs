@@ -4,7 +4,13 @@ use tracker_core::{
     ConfidenceLevel,
 };
 use std::collections::HashMap;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
+use tracker_core::Coord;
+
+use serde_json;
 #[derive(PartialEq, Clone, Copy)]
 enum Screen {
     ProviderPicker,
@@ -58,7 +64,7 @@ impl TrackerApp {
     }
 
     fn provider(&self) -> Option<&dyn Provider> {
-        self.selected_provider_idx.and_then(|i| self.registry.list().get(i).map(|p| p.as_ref()))
+        self.selected_provider_idx.and_then(|i| self.registry.list().get(i).map(|p| *p))
     }
 }
 
@@ -179,7 +185,8 @@ impl TrackerApp {
             && self.selected_dest.is_some()
             && self.selected_origin != self.selected_dest;
 
-        if ui.button("Compute ETA").enabled(can_compute).clicked() {
+        let compute_btn = egui::Button::new("Compute ETA").enabled(can_compute);
+        if ui.add(compute_btn).clicked() {
             self.compute_eta(provider);
         }
 
@@ -217,7 +224,7 @@ impl TrackerApp {
                             ui.label(egui::RichText::new(format!("best: {} min | {}", eta.eta_min_best, eta.confidence))
                                 .color(match eta.confidence {
                                     ConfidenceLevel::High => egui::Color32::GREEN,
-                                    ConfidenceLevel::Medium => egui::Color32::ORANGE,
+                                    ConfidenceLevel::Medium => egui::Color32::from_rgb(255, 165, 0),
                                     ConfidenceLevel::Low => egui::Color32::RED,
                                     ConfidenceLevel::Unknown => egui::Color32::GRAY,
                                 }));
@@ -363,15 +370,15 @@ impl TrackerApp {
         let dest_id = self.stations[dest_idx].id.clone();
         let region = self.selected_region.clone();
         let provider_id = provider.id().to_string();
+        let congestion = self.congestion.clone();
+        let buses = self.buses.clone();
 
         let mut engine = EtaEngine::new().with_data(self.routes.clone(), self.stations.clone());
-        let congestion = self.congestion.as_ref();
-        let buses = self.buses.clone();
 
         // Run in thread to avoid blocking UI
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let estimate = engine.estimate(&origin_id, &dest_id, &region, &provider_id, &buses, congestion);
+            let estimate = engine.estimate(&origin_id, &dest_id, &region, &provider_id, &buses, congestion.as_ref());
             let _ = tx.send(estimate);
         });
 
@@ -431,5 +438,3 @@ fn load_stations_from_file() -> Option<Vec<Station>> {
     let stations: Vec<Station> = serde_json::from_str(&content).ok()?;
     Some(stations)
 }
-
-use tracker_core::Coord;

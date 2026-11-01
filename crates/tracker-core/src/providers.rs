@@ -54,7 +54,7 @@ impl ProviderRegistry {
     }
 
     pub fn list(&self) -> Vec<&dyn Provider> {
-        self.providers.values().map(|p| p.as_ref()).collect()
+        self.providers.values().map(|p| &**p).collect()
     }
 
     pub fn get(&self, id: &str) -> Option<&dyn Provider> {

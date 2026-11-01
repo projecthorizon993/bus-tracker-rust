@@ -7,7 +7,7 @@ use std::time::Duration;
 mod app;
 use app::TrackerApp;
 
-fn main() -> eframe::Result {
+fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Bus Tracker - VinBus / GreenSM / iHanoi",
         eframe::NativeOptions {
