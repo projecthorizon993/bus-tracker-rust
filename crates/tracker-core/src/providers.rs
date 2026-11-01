@@ -33,7 +33,6 @@ pub trait Provider: Send + Sync {
 }
 
 /// Registry of all providers
-#[derive(Default)]
 pub struct ProviderRegistry {
     providers: HashMap<String, Box<dyn Provider>>,
 }
