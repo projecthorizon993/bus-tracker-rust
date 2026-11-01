@@ -6,7 +6,6 @@ use tracker_core::{
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use serde_json;
 
 use tracker_core::Coord;
 
@@ -69,7 +68,7 @@ impl TrackerApp {
 impl eframe::App for TrackerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Auto-refresh timer
-        self.refresh_timer += ctx.input(|i| i.unstable_dt) as f32;
+        self.refresh_timer += ctx.input(|i| i.unstable_dt);
         if self.refresh_timer > 15.0 {
             self.refresh_timer = 0.0;
             if self.screen == Screen::LiveBoard {
@@ -299,7 +298,7 @@ impl TrackerApp {
             .list()
             .iter()
             .find(|p| p.id() == provider_id)
-            .map(|p| *p);
+            .copied();
         let Some(provider) = provider else {
             self.loading = false;
             self.status_message = "Provider not found.".to_string();
@@ -330,7 +329,7 @@ impl TrackerApp {
             .list()
             .iter()
             .find(|p| p.id() == provider_id)
-            .map(|p| *p);
+            .copied();
         let Some(provider) = provider else {
             self.status_message = "Provider not found.".to_string();
             return;
@@ -371,7 +370,7 @@ impl TrackerApp {
         let buses = self.buses.clone();
         let congestion = self.congestion.clone();
 
-        let mut engine = EtaEngine::new().with_data(self.routes.clone(), self.stations.clone());
+        let engine = EtaEngine::new().with_data(self.routes.clone(), self.stations.clone());
 
         // Run in thread to avoid blocking UI
         let (tx, rx) = mpsc::channel();
