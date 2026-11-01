@@ -4,17 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct AppStorage {
     pub speed_cache: SpeedCache,
-}
-
-impl Default for AppStorage {
-    fn default() -> Self {
-        Self {
-            speed_cache: SpeedCache::default(),
-        }
-    }
 }
 
 pub struct SpeedStorage {
@@ -24,7 +16,7 @@ pub struct SpeedStorage {
 impl SpeedStorage {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let dir = config_dir()
-            .unwrap_or_else(|| std::env::temp_dir())
+            .unwrap_or_else(std::env::temp_dir)
             .join("bus-tracker-rust");
         fs::create_dir_all(&dir)?;
         let path = dir.join("speed_cache.json");
