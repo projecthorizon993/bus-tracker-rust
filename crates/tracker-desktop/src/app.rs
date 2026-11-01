@@ -381,7 +381,7 @@ impl TrackerApp {
                 &origin_id,
                 &dest_id,
                 &region,
-                provider_id,
+                &provider_id,
                 &buses,
                 congestion.as_ref(),
             );
