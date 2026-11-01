@@ -102,8 +102,8 @@ impl EtaEngine {
         let hour = chrono::Utc::now().hour();
 
         let historical_speed = self.speed_cache.samples.get(&segment_key)
+            .filter(|s| s.hour_of_day == hour)
             .map(|s| s.avg_speed_kmh)
-            .filter(|_| s.hour_of_day == hour)
             .unwrap_or(0.0);
 
         // Blend: 70% live, 30% historical if available

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// A geographic coordinate
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Coord {
     pub lat: f64,
     pub lng: f64,
@@ -22,7 +22,7 @@ impl Coord {
 }
 
 /// A bus stop / station
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Station {
     pub id: String,
     pub name: String,
@@ -127,7 +127,7 @@ pub struct ProviderConfig {
     pub id: &'static str,
     pub name: &'static str,
     pub base_url: &'static str,
-    pub regions: Vec<&'static str>,
+    pub regions: &'[&'static str],
 }
 
 /// All providers extracted from decompiled apps
