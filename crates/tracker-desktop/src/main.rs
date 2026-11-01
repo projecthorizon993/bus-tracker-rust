@@ -1,11 +1,7 @@
 use eframe::egui;
-use tracker_core::{EtaEngine, ProviderRegistry, Station, Route, CongestionInfo, Bus};
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
+use app::TrackerApp;
 
 mod app;
-use app::TrackerApp;
 
 fn main() -> eframe::Result<()> {
     eframe::run_native(

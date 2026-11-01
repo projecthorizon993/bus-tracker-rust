@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 use tracker_core::{EtaEngine, ProviderRegistry, Station, Route, CongestionInfo};
-use std::collections::HashMap;
 
 #[derive(Parser)]
 #[command(name = "bus-tracker")]
