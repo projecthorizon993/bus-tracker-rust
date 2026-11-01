@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
+use serde_json;
 
 use tracker_core::Coord;
 
-use serde_json;
 #[derive(PartialEq, Clone, Copy)]
 enum Screen {
     ProviderPicker,
@@ -34,14 +34,12 @@ pub struct TrackerApp {
     status_message: String,
     refresh_timer: f32,
     provider_names: Vec<String>,
-    region_names: Vec<String>,
 }
 
 impl TrackerApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let registry = ProviderRegistry::new();
         let provider_names: Vec<String> = registry.list().iter().map(|p| p.name().to_string()).collect();
-        let region_names = vec!["Hanoi (hn)".to_string(), "Ho Chi Minh City (hcm)".to_string()];
 
         Self {
             registry,
@@ -59,12 +57,13 @@ impl TrackerApp {
             status_message: "Welcome. Select a provider to begin.".to_string(),
             refresh_timer: 0.0,
             provider_names,
-            region_names,
         }
     }
 
-    fn provider(&self) -> Option<&dyn Provider> {
-        self.selected_provider_idx.and_then(|i| self.registry.list().get(i).map(|p| *p))
+    /// Look up the selected provider by index. Reference lives as long as self.registry.
+    fn selected_provider(&self) -> Option<&dyn Provider> {
+        self.selected_provider_idx
+            .and_then(|i| self.registry.get_by_index(i))
     }
 }
 
@@ -75,7 +74,7 @@ impl eframe::App for TrackerApp {
         if self.refresh_timer > 15.0 {
             self.refresh_timer = 0.0;
             if self.screen == Screen::LiveBoard {
-                self.fetch_data(ctx);
+                self.refresh_data(ctx);
             }
         }
 
@@ -112,9 +111,8 @@ impl TrackerApp {
     }
 
     fn render_station_picker(&mut self, ui: &mut egui::Ui) {
-        let provider = match self.provider() {
-            Some(p) => p,
-            None => return,
+        let Some(provider) = self.selected_provider() else {
+            return;
         };
 
         ui.label(format!("Provider: {}", provider.name()));
@@ -138,8 +136,10 @@ impl TrackerApp {
         ui.add_space(10.0);
 
         // Load stations button
-        if ui.button("Load stations & routes").clicked() {
-            self.load_stations_and_buses(provider);
+        if ui.button("Load stations & buses").clicked() {
+            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string();
+            let region = self.selected_region.clone();
+            self.load_stations_and_buses(&provider_id, &region);
         }
 
         if self.loading {
@@ -185,9 +185,10 @@ impl TrackerApp {
             && self.selected_dest.is_some()
             && self.selected_origin != self.selected_dest;
 
-        let compute_btn = egui::Button::new("Compute ETA").enabled(can_compute);
-        if ui.add(compute_btn).clicked() {
-            self.compute_eta(provider);
+        let compute_btn = egui::Button::new("Compute ETA");
+        if ui.add_enabled(can_compute, compute_btn).clicked() {
+            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string();
+            self.compute_eta(&provider_id);
         }
 
         if ui.button("← Back to providers").clicked() {
@@ -196,9 +197,8 @@ impl TrackerApp {
     }
 
     fn render_live_board(&mut self, ui: &mut egui::Ui) {
-        let provider = match self.provider() {
-            Some(p) => p,
-            None => return,
+        let Some(provider) = self.selected_provider() else {
+            return;
         };
 
         ui.heading("Live Bus Board");
@@ -277,108 +277,109 @@ impl TrackerApp {
 
         ui.add_space(10.0);
         if ui.button("Refresh now").clicked() {
-            self.fetch_buses_only(provider);
+            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string();
+            self.refresh_buses_only(&provider_id);
         }
         if ui.button("← Back to station picker").clicked() {
             self.screen = Screen::StationPicker;
         }
     }
 
-    fn load_stations_and_buses(&mut self, provider: &dyn Provider) {
+    fn load_stations_and_buses(&mut self, provider_id: &str, region: &str) {
         self.loading = true;
         self.status_message = "Loading stations and buses...".to_string();
 
-        let region = self.selected_region.clone();
-        let provider_id = provider.id().to_string();
+        // Extract all data from provider before mutating self
+        let provider = self
+            .registry
+            .list()
+            .iter()
+            .find(|p| p.id() == provider_id)
+            .map(|p| *p);
+        let Some(provider) = provider else {
+            self.loading = false;
+            self.status_message = "Provider not found.".to_string();
+            return;
+        };
+
+        let congestion = provider.fetch_congestion(region).ok().flatten();
+        let buses = provider.fetch_buses(region).unwrap_or_default();
+
         let provider_name = provider.name().to_string();
 
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            // Fetch stations from bundled data (empty for now, will be populated from data file)
-            let stations = load_stations_for_region(&region, &provider_id);
-
-            // Fetch congestion
-            let congestion = provider.fetch_congestion(&region).ok().flatten();
-
-            // Fetch buses
-            let buses = match provider.fetch_buses(&region) {
-                Ok(b) => b,
-                Err(_) => vec![],
-            };
-
-            let _ = tx.send((stations, congestion, buses));
-        });
-
-        // We can't block in egui, so store the receiver and check next frame
-        // For simplicity in this prototype, we do a blocking fetch with a short timeout
-        // In production, use eframe::epi or async with egui_extras
-        match rx.recv_timeout(Duration::from_secs(10)) {
-            Ok((stations, congestion, buses)) => {
-                self.stations = stations;
-                self.congestion = congestion;
-                self.buses = buses;
-                self.loading = false;
-                self.status_message = format!("Loaded {} buses from {}", self.buses.len(), provider_name);
-                if self.buses.is_empty() {
-                    self.status_message.push_str(" (API returned no live data — try again or check connection)");
-                }
-            }
-            Err(_) => {
-                self.loading = false;
-                self.status_message = "Timeout loading data. Check your internet connection.".to_string();
-            }
+        // Now mutate self (provider borrow is dropped)
+        self.stations = load_stations_for_region(region, provider_id);
+        self.congestion = congestion;
+        self.buses = buses;
+        self.loading = false;
+        self.status_message = format!("Loaded {} buses from {}", self.buses.len(), provider_name);
+        if self.buses.is_empty() {
+            self.status_message.push_str(" (API returned no live data — try again or check connection)");
         }
     }
 
-    fn fetch_buses_only(&mut self, provider: &dyn Provider) {
+    fn refresh_buses_only(&mut self, provider_id: &str) {
         let region = self.selected_region.clone();
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let buses = match provider.fetch_buses(&region) {
-                Ok(b) => b,
-                Err(_) => vec![],
-            };
-            let _ = tx.send(buses);
-        });
-        match rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(buses) => {
-                self.buses = buses;
-                if self.selected_origin.is_some() && self.selected_dest.is_some() {
-                    self.compute_eta(provider);
-                }
-                self.status_message = format!("Refreshed: {} buses", self.buses.len());
-            }
-            Err(_) => {
-                self.status_message = "Refresh timed out.".to_string();
-            }
+
+        let provider = self
+            .registry
+            .list()
+            .iter()
+            .find(|p| p.id() == provider_id)
+            .map(|p| *p);
+        let Some(provider) = provider else {
+            self.status_message = "Provider not found.".to_string();
+            return;
+        };
+
+        let buses = provider.fetch_buses(&region).unwrap_or_default();
+        self.buses = buses;
+        if self.selected_origin.is_some() && self.selected_dest.is_some() {
+            self.compute_eta(provider_id);
         }
+        self.status_message = format!("Refreshed: {} buses", self.buses.len());
     }
 
-    fn fetch_data(&mut self, ctx: &egui::Context) {
-        let provider = match self.provider() {
-            Some(p) => p,
-            None => return,
+    fn refresh_data(&mut self, ctx: &egui::Context) {
+        let provider_id = self
+            .registry
+            .list()
+            .iter()
+            .find(|p| p.id() == self.registry.list()[self.selected_provider_idx.unwrap()].id())
+            .map(|_| self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string());
+        let Some(provider_id) = provider_id else {
+            return;
         };
-        self.fetch_buses_only(provider);
+        self.refresh_buses_only(&provider_id);
         ctx.request_repaint();
     }
 
-    fn compute_eta(&mut self, provider: &dyn Provider) {
-        let origin_idx = self.selected_origin.unwrap();
-        let dest_idx = self.selected_dest.unwrap();
+    fn compute_eta(&mut self, provider_id: &str) {
+        let Some(origin_idx) = self.selected_origin else { return };
+        let Some(dest_idx) = self.selected_dest else { return };
+        if origin_idx == dest_idx {
+            return;
+        }
+
         let origin_id = self.stations[origin_idx].id.clone();
         let dest_id = self.stations[dest_idx].id.clone();
         let region = self.selected_region.clone();
-        let provider_id = provider.id().to_string();
-        let congestion = self.congestion.clone();
         let buses = self.buses.clone();
+        let congestion = self.congestion.clone();
 
         let mut engine = EtaEngine::new().with_data(self.routes.clone(), self.stations.clone());
 
         // Run in thread to avoid blocking UI
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let estimate = engine.estimate(&origin_id, &dest_id, &region, &provider_id, &buses, congestion.as_ref());
+            let estimate = engine.estimate(
+                &origin_id,
+                &dest_id,
+                &region,
+                provider_id,
+                &buses,
+                congestion.as_ref(),
+            );
             let _ = tx.send(estimate);
         });
 
@@ -401,7 +402,8 @@ impl TrackerApp {
 fn load_stations_for_region(region: &str, provider_id: &str) -> Vec<Station> {
     // Try to load from bundled data file first
     if let Some(stations) = load_stations_from_file() {
-        return stations.into_iter()
+        return stations
+            .into_iter()
             .filter(|s| s.region == region && s.provider == provider_id)
             .collect();
     }
@@ -409,20 +411,92 @@ fn load_stations_for_region(region: &str, provider_id: &str) -> Vec<Station> {
     // Fallback: hardcoded sample stations for Hanoi (VinBus)
     if region == "hn" && provider_id == "vinbus" {
         return vec![
-            Station { id: "hn_001".to_string(), name: "Bến Xe Yên Nghĩa".to_string(), coord: Coord { lat: 20.9360, lng: 105.7520 }, region: "hn".to_string(), provider: "vinbus".to_string() },
-            Station { id: "hn_002".to_string(), name: "Bến Xe Mỹ Đình".to_string(), coord: Coord { lat: 21.0570, lng: 105.7760 }, region: "hn".to_string(), provider: "vinbus".to_string() },
-            Station { id: "hn_003".to_string(), name: "Bến Xe Gia Lâm".to_string(), coord: Coord { lat: 21.0450, lng: 105.8370 }, region: "hn".to_string(), provider: "vinbus".to_string() },
-            Station { id: "hn_004".to_string(), name: "Bến Xe Bắc Long Biên".to_string(), coord: Coord { lat: 21.0380, lng: 105.8570 }, region: "hn".to_string(), provider: "vinbus".to_string() },
-            Station { id: "hn_005".to_string(), name: "Bến Xe Bắc Sơn".to_string(), coord: Coord { lat: 21.0200, lng: 105.8350 }, region: "hn".to_string(), provider: "vinbus".to_string() },
+            Station {
+                id: "hn_001".to_string(),
+                name: "Bến Xe Yên Nghĩa".to_string(),
+                coord: Coord {
+                    lat: 20.9360,
+                    lng: 105.7520,
+                },
+                region: "hn".to_string(),
+                provider: "vinbus".to_string(),
+            },
+            Station {
+                id: "hn_002".to_string(),
+                name: "Bến Xe Mỹ Đình".to_string(),
+                coord: Coord {
+                    lat: 21.0570,
+                    lng: 105.7760,
+                },
+                region: "hn".to_string(),
+                provider: "vinbus".to_string(),
+            },
+            Station {
+                id: "hn_003".to_string(),
+                name: "Bến Xe Gia Lâm".to_string(),
+                coord: Coord {
+                    lat: 21.0450,
+                    lng: 105.8370,
+                },
+                region: "hn".to_string(),
+                provider: "vinbus".to_string(),
+            },
+            Station {
+                id: "hn_004".to_string(),
+                name: "Bến Xe Bắc Long Biên".to_string(),
+                coord: Coord {
+                    lat: 21.0380,
+                    lng: 105.8570,
+                },
+                region: "hn".to_string(),
+                provider: "vinbus".to_string(),
+            },
+            Station {
+                id: "hn_005".to_string(),
+                name: "Bến Xe Bắc Sơn".to_string(),
+                coord: Coord {
+                    lat: 21.0200,
+                    lng: 105.8350,
+                },
+                region: "hn".to_string(),
+                provider: "vinbus".to_string(),
+            },
         ];
     }
 
     // Fallback: HCMC
     if region == "hcm" && provider_id == "vinbus" {
         return vec![
-            Station { id: "hcm_001".to_string(), name: "Bến Xe Miền Tây".to_string(), coord: Coord { lat: 10.7560, lng: 106.6290 }, region: "hcm".to_string(), provider: "vinbus".to_string() },
-            Station { id: "hcm_002".to_string(), name: "Bến Xe Miền Đông".to_string(), coord: Coord { lat: 10.8050, lng: 106.7310 }, region: "hcm".to_string(), provider: "vinbus".to_string() },
-            Station { id: "hcm_003".to_string(), name: "Bến Xe Chợ Lớn".to_string(), coord: Coord { lat: 10.7560, lng: 106.6640 }, region: "hcm".to_string(), provider: "vinbus".to_string() },
+            Station {
+                id: "hcm_001".to_string(),
+                name: "Bến Xe Miền Tây".to_string(),
+                coord: Coord {
+                    lat: 10.7560,
+                    lng: 106.6290,
+                },
+                region: "hcm".to_string(),
+                provider: "vinbus".to_string(),
+            },
+            Station {
+                id: "hcm_002".to_string(),
+                name: "Bến Xe Miền Đông".to_string(),
+                coord: Coord {
+                    lat: 10.8050,
+                    lng: 106.7310,
+                },
+                region: "hcm".to_string(),
+                provider: "vinbus".to_string(),
+            },
+            Station {
+                id: "hcm_003".to_string(),
+                name: "Bến Xe Chợ Lớn".to_string(),
+                coord: Coord {
+                    lat: 10.7560,
+                    lng: 106.6640,
+                },
+                region: "hcm".to_string(),
+                provider: "vinbus".to_string(),
+            },
         ];
     }
 

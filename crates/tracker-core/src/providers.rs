@@ -57,6 +57,10 @@ impl ProviderRegistry {
         self.providers.values().map(|p| &**p).collect()
     }
 
+    pub fn get_by_index(&self, index: usize) -> Option<&dyn Provider> {
+        self.providers.values().nth(index).map(|p| &**p)
+    }
+
     pub fn get(&self, id: &str) -> Option<&dyn Provider> {
         self.providers.get(id).map(|p| p.as_ref())
     }
