@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use tracker_core::{EtaEngine, ProviderRegistry, Station, Route, CongestionInfo};
+use tracker_core::{EtaEngine, ProviderRegistry, Station, Route};
 
 #[derive(Parser)]
 #[command(name = "bus-tracker")]
@@ -37,7 +37,6 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
-    let rt = tokio::runtime::Runtime::new().unwrap();
 
     match cli.command {
         Commands::Providers => {
@@ -89,7 +88,7 @@ fn main() {
 
             // Load bundled station/route data
             let (stations, routes) = load_bundled_data(&region, &provider);
-            let mut engine = EtaEngine::new().with_data(routes, stations);
+            let engine = EtaEngine::new().with_data(routes, stations);
 
             // Fetch congestion
             let congestion = p.fetch_congestion(&region).ok().flatten();
@@ -127,7 +126,7 @@ fn main() {
     }
 }
 
-fn load_bundled_data(region: &str, provider: &str) -> (Vec<Station>, Vec<Route>) {
+fn load_bundled_data(_region: &str, _provider: &str) -> (Vec<Station>, Vec<Route>) {
     // In a real app, this would load from data/stations.json
     // For now, return empty so the ETA engine works with live bus matching only
     (Vec::new(), Vec::new())
