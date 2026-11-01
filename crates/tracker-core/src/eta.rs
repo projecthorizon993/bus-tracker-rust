@@ -56,10 +56,7 @@ impl EtaEngine {
             .filter(|r| {
                 let oi = r.stations.iter().position(|s| s == origin_id);
                 let di = r.stations.iter().position(|s| s == dest_id);
-                match (oi, di) {
-                    (Some(o), Some(d)) if d > o => true,
-                    _ => false,
-                }
+                oi.is_some() && di.is_some() && di.unwrap() > oi.unwrap()
             })
             .collect();
 

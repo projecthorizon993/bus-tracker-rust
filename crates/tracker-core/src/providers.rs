@@ -88,7 +88,7 @@ impl Provider for VinBusProvider {
             .as_secs();
         let url = format!(
             "{}?regionCode={}&time={}",
-            format!("{}/v1/client/public/bus_data/compress_data_by_time", "https://vbcore-api.vinbus.vn"),
+            "https://vbcore-api.vinbus.vn/v1/client/public/bus_data/compress_data_by_time",
             region,
             time
         );
@@ -231,7 +231,7 @@ fn extract_zip_url(text: &str) -> Option<String> {
     let zip_pos = lower.find(".zip")?;
     let start = text[..zip_pos].rfind("http").unwrap_or(0);
     let _end = text[zip_pos..]
-        .find(|c: char| matches!(c, '"' | '\'' | ' ' | '<' | '>'))
+        .find(|c: char| ['"', '\'', ' ', '<', '>'].contains(&c))
         .unwrap_or(text.len() - zip_pos);
     let url = &text[start..zip_pos + 4];
     if url.starts_with("http") {

@@ -160,15 +160,7 @@ pub mod keys {
 }
 
 /// Cache entry for historical speeds
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SpeedCache {
     pub samples: HashMap<String, SpeedSample>,
-}
-
-impl Default for SpeedCache {
-    fn default() -> Self {
-        Self {
-            samples: HashMap::new(),
-        }
-    }
 }
