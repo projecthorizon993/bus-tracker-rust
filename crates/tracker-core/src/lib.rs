@@ -3,9 +3,6 @@ pub mod providers;
 pub mod eta;
 pub mod storage;
 
-use models::*;
-use providers::*;
-
 pub use models::{
     Bus, CongestionInfo, ConfidenceLevel, Coord, EtaEstimate, ProviderConfig, Route, Station,
     SpeedCache,

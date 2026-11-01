@@ -4,7 +4,6 @@ use crate::models::{
 use crate::models::Coord;
 use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::time::SystemTime;
@@ -34,6 +33,7 @@ pub trait Provider: Send + Sync {
 }
 
 /// Registry of all providers
+#[derive(Default)]
 pub struct ProviderRegistry {
     providers: HashMap<String, Box<dyn Provider>>,
 }
@@ -62,7 +62,7 @@ impl ProviderRegistry {
     }
 
     pub fn get(&self, id: &str) -> Option<&dyn Provider> {
-        self.providers.get(id).map(|p| p.as_ref())
+        self.providers.get(id).map(|p| &**p)
     }
 
     pub fn provider_configs() -> &'static [ProviderConfig] {
@@ -232,7 +232,7 @@ fn extract_zip_url(text: &str) -> Option<String> {
     let zip_pos = lower.find(".zip")?;
     let start = text[..zip_pos].rfind("http").unwrap_or(0);
     let _end = text[zip_pos..]
-        .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == '<' || c == '>')
+        .find(|c: char| matches!(c, '"' | '\'' | ' ' | '<' | '>'))
         .unwrap_or(text.len() - zip_pos);
     let url = &text[start..zip_pos + 4];
     if url.starts_with("http") {
