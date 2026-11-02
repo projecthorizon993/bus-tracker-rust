@@ -446,7 +446,7 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
         let _version_needed = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
         let general_purpose_bit = u16::from_le_bytes([data[offset + 6], data[offset + 7]]);
         let compression_method = u16::from_le_bytes([data[offset + 8], data[offset + 9]]);
-        let _compressed_size = u32::from_le_bytes([data[offset + 18], data[offset + 19], data[offset + 20], data[offset + 21]]);
+        let compressed_size = u32::from_le_bytes([data[offset + 18], data[offset + 19], data[offset + 20], data[offset + 21]]);
         let _uncompressed_size = u32::from_le_bytes([data[offset + 22], data[offset + 23], data[offset + 24], data[offset + 25]]);
         let file_name_len = u16::from_le_bytes([data[offset + 26], data[offset + 27]]);
         let extra_field_len = u16::from_le_bytes([data[offset + 28], data[offset + 29]]);
