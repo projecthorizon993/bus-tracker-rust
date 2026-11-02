@@ -101,7 +101,7 @@ impl eframe::App for TrackerApp {
                         // Data source badge
                         let (badge_text, badge_color) = match self.data_source {
                             DataSource::Live => ("● LIVE", egui::Color32::GREEN),
-                            DataSource::Demo => ("▲ DEMO (API unreachable)", egui::Color32::ORANGE),
+                            DataSource::Demo => ("▲ DEMO (API unreachable)", egui::Color32::from_rgb(255, 165, 0)),
                         };
                         ui.label(egui::RichText::new(badge_text).color(badge_color).small());
                         ui.separator();

@@ -4,9 +4,9 @@ pub mod eta;
 pub mod storage;
 
 pub use models::{
-    Bus, CongestionInfo, ConfidenceLevel, Coord, EtaEstimate, ProviderConfig, Route, Station,
-    SpeedCache,
+    Bus, CongestionInfo, ConfidenceLevel, Coord, DataSource, EtaEstimate, ProviderConfig, Route,
+    Station, SpeedCache,
 };
-pub use providers::{Provider, ProviderRegistry};
+pub use providers::{DemoProvider, Provider, ProviderRegistry};
 pub use eta::EtaEngine;
 pub use storage::SpeedStorage;

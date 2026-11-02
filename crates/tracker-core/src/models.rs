@@ -92,6 +92,13 @@ pub enum ConfidenceLevel {
     Unknown,
 }
 
+/// Data source indicator: live API or demo fallback
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DataSource {
+    Live,
+    Demo,
+}
+
 impl std::fmt::Display for ConfidenceLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
