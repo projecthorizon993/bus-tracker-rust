@@ -92,6 +92,17 @@ struct StationInfo {
     provider: String,
 }
 
+impl StationInfo {
+    fn from_station(s: &tracker_core::Station) -> Self {
+        Self {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            region: s.region.clone(),
+            provider: s.provider.clone(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct BusInfo {
     vehicle_id: String,
@@ -372,7 +383,7 @@ async fn compute_eta_api(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let mut engine = EtaEngine::new()
+    let engine = EtaEngine::new()
         .with_data(Vec::new(), stations.clone());
 
     let estimate = engine.estimate(
