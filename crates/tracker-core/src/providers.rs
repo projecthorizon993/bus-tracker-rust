@@ -422,21 +422,205 @@ fn fetch_vinbus_zip(client: &Client, zip_url: &str) -> Result<Vec<Bus>, Provider
         .bytes()
         .map_err(|e| ProviderError::Http(e.to_string()))?;
 
-    // Try to open ZIP. AES-encrypted entries will fail with standard zip crate.
-    let cursor = Cursor::new(bytes);
-    let mut archive = ZipArchive::new(cursor).map_err(|e| ProviderError::Zip(e.to_string()))?;
+    parse_vinbus_zip_bytes(&bytes)
+}
 
+/// Parse VinBus ZIP bytes, decrypting WinZip AES-encrypted entries if needed.
+fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
     let mut buses = Vec::new();
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| ProviderError::Zip(e.to_string()))?;
-        let mut contents = String::new();
-        std::io::Read::read_to_string(&mut file, &mut contents).ok();
-        if let Ok(parsed) = parse_vinbus_json(&contents) {
-            buses.extend(parsed);
+
+    // Walk through ZIP local file headers manually to find AES-encrypted entries.
+    let mut offset: usize = 0;
+    while offset + 4 <= data.len() {
+        // Local file header signature: 0x04034b50 ("PK\x03\x04")
+        if &data[offset..offset + 4] != b"PK\x03\x04" {
+            break;
+        }
+        if offset + 30 > data.len() {
+            break;
+        }
+
+        let version_needed = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
+        let general_purpose_bit = u16::from_le_bytes([data[offset + 6], data[offset + 7]]);
+        let compression_method = u16::from_le_bytes([data[offset + 8], data[offset + 9]]);
+        // let _last_mod_time = u16::from_le_bytes([data[offset + 10], data[offset + 11]]);
+        // let _last_mod_date = u16::from_le_bytes([data[offset + 12], data[offset + 13]]);
+        // let _crc32 = u32::from_le_bytes([data[offset + 14], data[offset + 15], data[offset + 16], data[offset + 17]]);
+        let compressed_size = u32::from_le_bytes([data[offset + 18], data[offset + 19], data[offset + 20], data[offset + 21]]);
+        let uncompressed_size = u32::from_le_bytes([data[offset + 22], data[offset + 23], data[offset + 24], data[offset + 25]]);
+        let file_name_len = u16::from_le_bytes([data[offset + 26], data[offset + 27]]);
+        let extra_field_len = u16::from_le_bytes([data[offset + 28], data[offset + 29]]);
+
+        let header_end = offset + 30;
+        let file_name_start = header_end;
+        let extra_start = file_name_start + file_name_len as usize;
+        let data_start = extra_start + extra_field_len as usize;
+
+        if data_start > data.len() {
+            break;
+        }
+
+        let file_name = String::from_utf8_lossy(&data[file_name_start..extra_start]).to_string();
+        let extra_field = &data[extra_start..data_start];
+
+        // Check for WinZip AES extra field (0x9901)
+        let aes_info = parse_zip_aes_extra(extra_field);
+
+        let encrypted_data_end = data_start + compressed_size as usize;
+        if encrypted_data_end > data.len() {
+            break;
+        }
+        let encrypted_data = &data[data_start..encrypted_data_end];
+
+        let decrypted = if let Some(aes) = aes_info {
+            decrypt_winzip_aes(VINBUS_ZIP_PASSWORD.as_bytes(), &aes, encrypted_data)?
+        } else {
+            encrypted_data.to_vec()
+        };
+
+        // Decompress if needed
+        let decompressed = if compression_method == 8 {
+            // DEFLATE
+            match flate2::read::ZlibDecoder::new(&decrypted[..])
+                .bytes()
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(d) => d,
+                Err(_) => {
+                    // Try raw DEFLATE
+                    match flate2::read::DeflateDecoder::new(&decrypted[..])
+                        .bytes()
+                        .collect::<Result<Vec<_>, _>>()
+                    {
+                        Ok(d) => d,
+                        Err(_) => decrypted,
+                    }
+                }
+            }
+        } else {
+            decrypted
+        };
+
+        if let Ok(text) = String::from_utf8(decompressed) {
+            if let Ok(parsed) = parse_vinbus_json(&text) {
+                buses.extend(parsed);
+            }
+        }
+
+        offset = encrypted_data_end;
+        // Skip data descriptor if present (bit 3 of general purpose bit flag)
+        if general_purpose_bit & 0x08 != 0 {
+            // Data descriptor: optional signature (4 bytes) + CRC32 (4) + compressed (4) + uncompressed (4)
+            offset += 12; // minimal, might need +4 for signature
         }
     }
 
     Ok(buses)
+}
+
+/// Parse the WinZip AES extra field (0x9901) from a ZIP extra field block.
+/// Returns (encryption_mode, salt) where mode is 1/2/3 for AES-128/192/256.
+fn parse_zip_aes_extra(extra: &[u8]) -> Option<(u16, Vec<u8>)> {
+    let mut i = 0;
+    while i + 4 <= extra.len() {
+        let header_id = u16::from_le_bytes([extra[i], extra[i + 1]]);
+        let data_size = u16::from_le_bytes([extra[i + 2], extra[i + 3]]) as usize;
+        if header_id == 0x9901 && i + 4 + data_size <= extra.len() {
+            let field_data = &extra[i + 4..i + 4 + data_size];
+            if field_data.len() >= 7 {
+                let version = u16::from_le_bytes([field_data[0], field_data[1]]);
+                let _vendor = u16::from_le_bytes([field_data[2], field_data[3]]);
+                let mode = u16::from_le_bytes([field_data[4], field_data[5]]);
+                let _compression = u16::from_le_bytes([field_data[6], field_data[7]]);
+                // Salt follows after the 7-byte header (actually saltSize = keySize)
+                let salt_size = match mode {
+                    1 => 16, // AES-128
+                    2 => 24, // AES-192
+                    3 => 32, // AES-256
+                    _ => 16,
+                };
+                if field_data.len() >= 8 + salt_size {
+                    let salt = field_data[8..8 + salt_size].to_vec();
+                    return Some((mode, salt));
+                }
+            }
+        }
+        i += 4 + data_size;
+    }
+    None
+}
+
+/// Decrypt WinZip AES-encrypted data.
+fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -> Result<Vec<u8>, ProviderError> {
+    let (mode, salt) = aes_info;
+    let key_size = match mode {
+        1 => 16usize,
+        2 => 24usize,
+        _ => 32usize, // AES-256
+    };
+    let iv_size = 16usize;
+
+    if data.len() < salt.len() + 2 {
+        return Err(ProviderError::Zip("Encrypted data too short".to_string()));
+    }
+
+    // Data layout: [salt][2-byte password verification][encrypted data][10-byte MAC]
+    let salt_end = salt.len();
+    let pw_verify_start = salt_end;
+    let pw_verify_end = pw_verify_start + 2;
+    let encrypted_start = pw_verify_end;
+    let mac_len = 10usize;
+
+    if data.len() < encrypted_start + mac_len {
+        return Err(ProviderError::Zip("Encrypted data too short for MAC".to_string()));
+    }
+
+    let _expected_pw_verify = u16::from_le_bytes([data[pw_verify_start], data[pw_verify_start + 1]]);
+    let encrypted_body = &data[encrypted_start..data.len() - mac_len];
+
+    // Derive key and IV from password + salt using SHA-256 iteration (WinZip AES)
+    let mut key_material = Vec::new();
+    let mut prev = {
+        let mut temp = password.to_vec();
+        temp.extend_from_slice(salt);
+        sha2::Sha256::digest(&temp).to_vec()
+    };
+    key_material.extend_from_slice(&prev);
+    for _ in 1..1000 {
+        let digest = sha2::Sha256::digest(&prev);
+        prev = digest.to_vec();
+        key_material.extend_from_slice(&prev);
+    }
+
+    let encryption_key = &key_material[0..key_size];
+    let iv = &key_material[key_size..key_size + iv_size];
+
+    // Decrypt with AES-CBC
+    let decrypted = match mode {
+        1 => {
+            let cipher = aes::Aes128::new_from_slice(encryption_key)
+                .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
+            cbc::Decryptor::new(cipher, cbc::Padding::Pkcs7, iv)
+                .decrypt_padded_vec_mut(encrypted_body)
+                .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
+        }
+        2 => {
+            let cipher = aes::Aes192::new_from_slice(encryption_key)
+                .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
+            cbc::Decryptor::new(cipher, cbc::Padding::Pkcs7, iv)
+                .decrypt_padded_vec_mut(encrypted_body)
+                .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
+        }
+        _ => {
+            let cipher = aes::Aes256::new_from_slice(encryption_key)
+                .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
+            cbc::Decryptor::new(cipher, cbc::Padding::Pkcs7, iv)
+                .decrypt_padded_vec_mut(encrypted_body)
+                .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
+        }
+    };
+
+    Ok(decrypted)
 }
 
 /// ---------- GreenSM / Xanh SM Provider ----------

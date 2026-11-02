@@ -13,3 +13,8 @@ thiserror = "1"
 flate2 = "1"
 zip = "2"
 dirs = "5"
+# AES decryption for VinBus ZIP (WinZip AES format)
+aes = "0.10"
+cbc = "1.1"
+ctr = "0.11"
+sha2 = "0.10"
