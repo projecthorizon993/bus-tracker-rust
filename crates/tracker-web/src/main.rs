@@ -294,13 +294,13 @@ async fn stations_handler(
             resultDiv.style.display = 'block';
             resultDiv.innerHTML = `
                 <h3>ETA Result</h3>
-                <p><strong>From:</strong> ${data.origin_station} → <strong>To:</strong> ${data.dest_station}</p>
-                <p><strong>ETA:</strong> ${data.eta_min_low}–${data.eta_min_high} min (best: ${data.eta_min_best} min)</p>
-                <p><strong>Confidence:</strong> ${data.confidence}</p>
-                <p><strong>Distance:</strong> ${(data.distance_m / 1000).toFixed(1)} km | <strong>Speed:</strong> ${data.avg_speed_kmh.toFixed(1)} km/h</p>
-                <p><strong>Congestion:</strong> ${data.congestion_label}</p>
-                <p><strong>Vehicle:</strong> ${data.vehicle_id || 'N/A'}</p>
-                <p><strong>Details:</strong> ${data.raw_details}</p>
+                <p><strong>From:</strong> ${{data.origin_station}} → <strong>To:</strong> ${{data.dest_station}}</p>
+                <p><strong>ETA:</strong> ${{data.eta_min_low}}–${{data.eta_min_high}} min (best: ${{data.eta_min_best}} min)</p>
+                <p><strong>Confidence:</strong> ${{data.confidence}}</p>
+                <p><strong>Distance:</strong> ${{(data.distance_m / 1000).toFixed(1)}} km | <strong>Speed:</strong> ${{data.avg_speed_kmh.toFixed(1)}} km/h</p>
+                <p><strong>Congestion:</strong> ${{data.congestion_label}}</p>
+                <p><strong>Vehicle:</strong> ${{data.vehicle_id || 'N/A'}}</p>
+                <p><strong>Details:</strong> ${{data.raw_details}}</p>
             `;
         }}
     </script>
