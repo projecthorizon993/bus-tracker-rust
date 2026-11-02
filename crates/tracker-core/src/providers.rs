@@ -554,20 +554,20 @@ fn parse_zip_aes_extra(extra: &[u8]) -> Option<(u16, Vec<u8>)> {
 
 /// Manual AES-CBC decryption using cipher traits.
 fn aes_cbc_decrypt<C: BlockDecrypt>(cipher: &C, iv: &[u8], input: &[u8]) -> Result<Vec<u8>, ProviderError> {
-    let block_size = cipher.block_size();
-    if input.len() % block_size != 0 {
+    const BLOCK_SIZE: usize = 16;
+    if input.len() % BLOCK_SIZE != 0 {
         return Err(ProviderError::Zip("Encrypted data not block-aligned".to_string()));
     }
 
     let mut result = Vec::with_capacity(input.len());
     let mut prev = iv.to_vec();
 
-    for chunk in input.chunks(block_size) {
+    for chunk in input.chunks(BLOCK_SIZE) {
         let mut block = GenericArray::from_exact_iter(chunk.iter().copied())
             .ok_or_else(|| ProviderError::Zip("Block size mismatch".to_string()))?;
         cipher.decrypt_block(&mut block);
         // XOR decrypted block with previous ciphertext block
-        for i in 0..block_size {
+        for i in 0..BLOCK_SIZE {
             block[i] ^= prev[i];
         }
         prev = chunk.to_vec();
@@ -577,7 +577,7 @@ fn aes_cbc_decrypt<C: BlockDecrypt>(cipher: &C, iv: &[u8], input: &[u8]) -> Resu
     // Remove PKCS7 padding
     if let Some(&last) = result.last() {
         let pad_len = last as usize;
-        if pad_len > 0 && pad_len <= block_size
+        if pad_len > 0 && pad_len <= BLOCK_SIZE
             && result.iter().rev().take(pad_len).all(|&b| b == last)
         {
             result.truncate(result.len() - pad_len);
