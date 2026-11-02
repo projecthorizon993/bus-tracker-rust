@@ -85,22 +85,12 @@ struct ProviderInfo {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 struct StationInfo {
     id: String,
     name: String,
     region: String,
     provider: String,
-}
-
-impl StationInfo {
-    fn from_station(s: &tracker_core::Station) -> Self {
-        Self {
-            id: s.id.clone(),
-            name: s.name.clone(),
-            region: s.region.clone(),
-            provider: s.provider.clone(),
-        }
-    }
 }
 
 #[derive(Serialize)]
