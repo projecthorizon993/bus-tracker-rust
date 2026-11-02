@@ -3,9 +3,9 @@ use crate::models::{
 };
 use crate::models::Coord;
 use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
-use aes::cipher::{KeyInit, IvInit};
+use aes::cipher::{KeyInit, IvInit, KeyIvInit};
 use aes::{Aes128, Aes192, Aes256};
-use cbc::Decryptor;
+use cipher::cbc::Decryptor as CbcDecryptor;
 use reqwest::blocking::Client;
 use serde_json;
 use sha2::{Digest, Sha256};
@@ -600,30 +600,28 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     let encryption_key = &key_material[0..key_size];
     let iv = &key_material[key_size..key_size + iv_size];
 
-    // Decrypt with AES-CBC
+    // Decrypt with AES-CBC using cipher crate
+    type Aes128CbcDec = CbcDecryptor<Aes128>;
+    type Aes192CbcDec = CbcDecryptor<Aes192>;
+    type Aes256CbcDec = CbcDecryptor<Aes256>;
+
     let decrypted = match mode {
         1 => {
-            let cipher = Aes128::new_from_slice(encryption_key)
-                .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
-            Decryptor::new_from_slice(cipher, iv)
-                .map_err(|e| ProviderError::Zip(format!("AES IV error: {}", e)))?
-                .decrypt_padded_vec_mut(encrypted_body)
+            let dec = Aes128CbcDec::new_from_slices(encryption_key, iv)
+                .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
+            dec.decrypt_padded_vec_mut(encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         2 => {
-            let cipher = Aes192::new_from_slice(encryption_key)
-                .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
-            Decryptor::new_from_slice(cipher, iv)
-                .map_err(|e| ProviderError::Zip(format!("AES IV error: {}", e)))?
-                .decrypt_padded_vec_mut(encrypted_body)
+            let dec = Aes192CbcDec::new_from_slices(encryption_key, iv)
+                .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
+            dec.decrypt_padded_vec_mut(encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         _ => {
-            let cipher = Aes256::new_from_slice(encryption_key)
-                .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
-            Decryptor::new_from_slice(cipher, iv)
-                .map_err(|e| ProviderError::Zip(format!("AES IV error: {}", e)))?
-                .decrypt_padded_vec_mut(encrypted_body)
+            let dec = Aes256CbcDec::new_from_slices(encryption_key, iv)
+                .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
+            dec.decrypt_padded_vec_mut(encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
     };
