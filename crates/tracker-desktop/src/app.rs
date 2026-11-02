@@ -3,7 +3,6 @@ use tracker_core::{
     EtaEngine, ProviderRegistry, Station, Route, CongestionInfo, Bus, Provider,
     ConfidenceLevel, DataSource, DemoProvider,
 };
-use std::collections::HashMap;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime};
