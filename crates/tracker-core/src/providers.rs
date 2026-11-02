@@ -8,11 +8,9 @@ use aes::{Aes128, Aes192, Aes256};
 use cipher::generic_array::GenericArray;
 use reqwest::blocking::Client;
 use serde_json;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::time::SystemTime;
-use zip::read::ZipArchive;
 
 /// Error type for provider operations
 #[derive(Debug, thiserror::Error)]
@@ -445,14 +443,11 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
             break;
         }
 
-        let version_needed = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
+        let _version_needed = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
         let general_purpose_bit = u16::from_le_bytes([data[offset + 6], data[offset + 7]]);
         let compression_method = u16::from_le_bytes([data[offset + 8], data[offset + 9]]);
-        // let _last_mod_time = u16::from_le_bytes([data[offset + 10], data[offset + 11]]);
-        // let _last_mod_date = u16::from_le_bytes([data[offset + 12], data[offset + 13]]);
-        // let _crc32 = u32::from_le_bytes([data[offset + 14], data[offset + 15], data[offset + 16], data[offset + 17]]);
-        let compressed_size = u32::from_le_bytes([data[offset + 18], data[offset + 19], data[offset + 20], data[offset + 21]]);
-        let uncompressed_size = u32::from_le_bytes([data[offset + 22], data[offset + 23], data[offset + 24], data[offset + 25]]);
+        let _compressed_size = u32::from_le_bytes([data[offset + 18], data[offset + 19], data[offset + 20], data[offset + 21]]);
+        let _uncompressed_size = u32::from_le_bytes([data[offset + 22], data[offset + 23], data[offset + 24], data[offset + 25]]);
         let file_name_len = u16::from_le_bytes([data[offset + 26], data[offset + 27]]);
         let extra_field_len = u16::from_le_bytes([data[offset + 28], data[offset + 29]]);
 
@@ -465,7 +460,7 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
             break;
         }
 
-        let file_name = String::from_utf8_lossy(&data[file_name_start..extra_start]).to_string();
+        let _file_name = String::from_utf8_lossy(&data[file_name_start..extra_start]).to_string();
         let extra_field = &data[extra_start..data_start];
 
         // Check for WinZip AES extra field (0x9901)
