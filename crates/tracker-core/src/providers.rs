@@ -8,7 +8,7 @@ use aes::{Aes128, Aes192, Aes256};
 use cipher::generic_array::GenericArray;
 use reqwest::blocking::Client;
 use serde_json;
-use sha1::Digest;
+use sha1::{Digest, Sha1};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
