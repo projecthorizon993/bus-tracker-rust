@@ -485,19 +485,16 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
 
         // Decompress if needed
         let decompressed = if compression_method == 8 {
-            // DEFLATE
-            match flate2::read::ZlibDecoder::new(&decrypted[..])
-                .bytes()
-                .collect::<Result<Vec<_>, _>>()
-            {
-                Ok(d) => d,
+            // DEFLATE - try Zlib wrapper first, then raw DEFLATE
+            let mut decoder = flate2::read::ZlibDecoder::new(&decrypted[..]);
+            let mut buf = Vec::new();
+            match std::io::Read::read_to_end(&mut decoder, &mut buf) {
+                Ok(_) => buf,
                 Err(_) => {
-                    // Try raw DEFLATE
-                    match flate2::read::DeflateDecoder::new(&decrypted[..])
-                        .bytes()
-                        .collect::<Result<Vec<_>, _>>()
-                    {
-                        Ok(d) => d,
+                    let mut decoder = flate2::read::DeflateDecoder::new(&decrypted[..]);
+                    let mut buf = Vec::new();
+                    match std::io::Read::read_to_end(&mut decoder, &mut buf) {
+                        Ok(_) => buf,
                         Err(_) => decrypted,
                     }
                 }
@@ -556,7 +553,7 @@ fn parse_zip_aes_extra(extra: &[u8]) -> Option<(u16, Vec<u8>)> {
 }
 
 /// Manual AES-CBC decryption using cipher traits.
-fn aes_cbc_decrypt<C: BlockDecryptMut>(cipher: &C, iv: &[u8], input: &[u8]) -> Result<Vec<u8>, ProviderError> {
+fn aes_cbc_decrypt<C: BlockDecryptMut>(cipher: &mut C, iv: &[u8], input: &[u8]) -> Result<Vec<u8>, ProviderError> {
     let block_size = C::block_size();
     if input.len() % block_size != 0 {
         return Err(ProviderError::Zip("Encrypted data not block-aligned".to_string()));
@@ -567,7 +564,7 @@ fn aes_cbc_decrypt<C: BlockDecryptMut>(cipher: &C, iv: &[u8], input: &[u8]) -> R
 
     for chunk in input.chunks(block_size) {
         let mut block = GenericArray::from_exact_iter(chunk.iter().copied())
-            .map_err(|_| ProviderError::Zip("Block size mismatch".to_string()))?;
+            .ok_or_else(|| ProviderError::Zip("Block size mismatch".to_string()))?;
         cipher.decrypt_block(&mut block);
         // XOR decrypted block with previous ciphertext block
         for i in 0..block_size {
@@ -643,21 +640,21 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
 
     let decrypted = match mode {
         1 => {
-            let cipher = Aes128Dec::new_from_slice(encryption_key)
+            let mut cipher = Aes128Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            aes_cbc_decrypt(&cipher, iv, encrypted_body)
+            aes_cbc_decrypt(&mut cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         2 => {
-            let cipher = Aes192Dec::new_from_slice(encryption_key)
+            let mut cipher = Aes192Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            aes_cbc_decrypt(&cipher, iv, encrypted_body)
+            aes_cbc_decrypt(&mut cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         _ => {
-            let cipher = Aes256Dec::new_from_slice(encryption_key)
+            let mut cipher = Aes256Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            aes_cbc_decrypt(&cipher, iv, encrypted_body)
+            aes_cbc_decrypt(&mut cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
     };
