@@ -6,9 +6,6 @@ use tracker_core::{
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use serde_json;
-
-use tracker_core::Coord;
 
 #[derive(PartialEq, Clone, Copy)]
 enum Screen {
@@ -325,7 +322,7 @@ impl TrackerApp {
             .list()
             .iter()
             .find(|p| p.id() == provider_id)
-            .map(|p| *p);
+            .copied();
         let Some(provider) = provider else {
             self.loading = false;
             self.status_message = "Provider not found.".to_string();
@@ -395,7 +392,7 @@ impl TrackerApp {
             .list()
             .iter()
             .find(|p| p.id() == provider_id)
-            .map(|p| *p);
+            .copied();
         let Some(provider) = provider else {
             self.status_message = "Provider not found.".to_string();
             return;
@@ -447,7 +444,7 @@ impl TrackerApp {
         let buses = self.buses.clone();
         let congestion = self.congestion.clone();
 
-        let mut engine = EtaEngine::new().with_data(self.routes.clone(), self.stations.clone());
+        let engine = EtaEngine::new().with_data(self.routes.clone(), self.stations.clone());
 
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
