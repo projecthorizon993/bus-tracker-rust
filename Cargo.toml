@@ -4,6 +4,7 @@ members = [
     "crates/tracker-core",
     "crates/tracker-cli",
     "crates/tracker-desktop",
+    "crates/tracker-web",
 ]
 
 [workspace.package]
