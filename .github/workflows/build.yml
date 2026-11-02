@@ -3,10 +3,9 @@ name: Build and Test
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
-  release:
-    types: [ published ]
 
 jobs:
   build:
@@ -33,9 +32,11 @@ jobs:
           path: crates/tracker-desktop/target/release/tracker-desktop.exe
 
       - name: Create release and upload binary
-        if: github.event_name == 'release'
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref }}
           files: crates/tracker-desktop/target/release/tracker-desktop.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
