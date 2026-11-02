@@ -3,7 +3,7 @@ use crate::models::{
 };
 use crate::models::Coord;
 use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
-use aes::cipher::{BlockDecryptMut, KeyInit};
+use aes::cipher::{BlockDecrypt, KeyInit};
 use aes::{Aes128, Aes192, Aes256};
 use cipher::generic_array::GenericArray;
 use reqwest::blocking::Client;
@@ -553,8 +553,8 @@ fn parse_zip_aes_extra(extra: &[u8]) -> Option<(u16, Vec<u8>)> {
 }
 
 /// Manual AES-CBC decryption using cipher traits.
-fn aes_cbc_decrypt<C: BlockDecryptMut>(cipher: &mut C, iv: &[u8], input: &[u8]) -> Result<Vec<u8>, ProviderError> {
-    let block_size = C::block_size();
+fn aes_cbc_decrypt<C: BlockDecrypt>(cipher: &C, iv: &[u8], input: &[u8]) -> Result<Vec<u8>, ProviderError> {
+    let block_size = cipher.block_size();
     if input.len() % block_size != 0 {
         return Err(ProviderError::Zip("Encrypted data not block-aligned".to_string()));
     }
@@ -640,21 +640,21 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
 
     let decrypted = match mode {
         1 => {
-            let mut cipher = Aes128Dec::new_from_slice(encryption_key)
+            let cipher = Aes128Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            aes_cbc_decrypt(&mut cipher, iv, encrypted_body)
+            aes_cbc_decrypt(&cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         2 => {
-            let mut cipher = Aes192Dec::new_from_slice(encryption_key)
+            let cipher = Aes192Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            aes_cbc_decrypt(&mut cipher, iv, encrypted_body)
+            aes_cbc_decrypt(&cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         _ => {
-            let mut cipher = Aes256Dec::new_from_slice(encryption_key)
+            let cipher = Aes256Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            aes_cbc_decrypt(&mut cipher, iv, encrypted_body)
+            aes_cbc_decrypt(&cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
     };
