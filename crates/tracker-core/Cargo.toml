@@ -15,5 +15,5 @@ zip = "2"
 dirs = "5"
 # AES decryption for VinBus ZIP (WinZip AES format)
 aes = "0.8"
-cipher = { version = "0.4", features = ["cbc"] }
+cipher = "0.4"
 sha2 = "0.10"

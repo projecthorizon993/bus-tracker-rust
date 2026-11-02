@@ -3,9 +3,9 @@ use crate::models::{
 };
 use crate::models::Coord;
 use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
-use aes::cipher::{KeyInit, IvInit, KeyIvInit};
+use aes::cipher::{BlockDecryptMut, KeyInit};
 use aes::{Aes128, Aes192, Aes256};
-use cipher::cbc::Decryptor as CbcDecryptor;
+use cipher::generic_array::GenericArray;
 use reqwest::blocking::Client;
 use serde_json;
 use sha2::{Digest, Sha256};
@@ -555,6 +555,41 @@ fn parse_zip_aes_extra(extra: &[u8]) -> Option<(u16, Vec<u8>)> {
     None
 }
 
+/// Manual AES-CBC decryption using cipher traits.
+fn aes_cbc_decrypt<C: BlockDecryptMut>(cipher: &C, iv: &[u8], input: &[u8]) -> Result<Vec<u8>, ProviderError> {
+    let block_size = C::block_size();
+    if input.len() % block_size != 0 {
+        return Err(ProviderError::Zip("Encrypted data not block-aligned".to_string()));
+    }
+
+    let mut result = Vec::with_capacity(input.len());
+    let mut prev = iv.to_vec();
+
+    for chunk in input.chunks(block_size) {
+        let mut block = GenericArray::from_exact_iter(chunk.iter().copied())
+            .map_err(|_| ProviderError::Zip("Block size mismatch".to_string()))?;
+        cipher.decrypt_block(&mut block);
+        // XOR decrypted block with previous ciphertext block
+        for i in 0..block_size {
+            block[i] ^= prev[i];
+        }
+        prev = chunk.to_vec();
+        result.extend_from_slice(&block);
+    }
+
+    // Remove PKCS7 padding
+    if let Some(&last) = result.last() {
+        let pad_len = last as usize;
+        if pad_len > 0 && pad_len <= block_size
+            && result.iter().rev().take(pad_len).all(|&b| b == last)
+        {
+            result.truncate(result.len() - pad_len);
+        }
+    }
+
+    Ok(result)
+}
+
 /// Decrypt WinZip AES-encrypted data.
 fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -> Result<Vec<u8>, ProviderError> {
     let (mode, salt) = aes_info;
@@ -600,28 +635,29 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     let encryption_key = &key_material[0..key_size];
     let iv = &key_material[key_size..key_size + iv_size];
 
-    // Decrypt with AES-CBC using cipher crate
-    type Aes128CbcDec = CbcDecryptor<Aes128>;
-    type Aes192CbcDec = CbcDecryptor<Aes192>;
-    type Aes256CbcDec = CbcDecryptor<Aes256>;
+    // Decrypt with AES-CBC (manual implementation using cipher traits)
+    type Aes128Dec = Aes128;
+    type Aes192Dec = Aes192;
+    type Aes256Dec = Aes256;
+    const BLOCK_SIZE: usize = 16;
 
     let decrypted = match mode {
         1 => {
-            let dec = Aes128CbcDec::new_from_slices(encryption_key, iv)
+            let cipher = Aes128Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            dec.decrypt_padded_vec_mut(encrypted_body)
+            aes_cbc_decrypt(&cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         2 => {
-            let dec = Aes192CbcDec::new_from_slices(encryption_key, iv)
+            let cipher = Aes192Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            dec.decrypt_padded_vec_mut(encrypted_body)
+            aes_cbc_decrypt(&cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         _ => {
-            let dec = Aes256CbcDec::new_from_slices(encryption_key, iv)
+            let cipher = Aes256Dec::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
-            dec.decrypt_padded_vec_mut(encrypted_body)
+            aes_cbc_decrypt(&cipher, iv, encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
     };
