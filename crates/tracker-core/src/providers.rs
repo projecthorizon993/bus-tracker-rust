@@ -630,7 +630,6 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     type Aes128Dec = Aes128;
     type Aes192Dec = Aes192;
     type Aes256Dec = Aes256;
-    const BLOCK_SIZE: usize = 16;
 
     let decrypted = match mode {
         1 => {
