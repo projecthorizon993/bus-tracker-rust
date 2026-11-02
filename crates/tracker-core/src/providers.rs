@@ -3,7 +3,12 @@ use crate::models::{
 };
 use crate::models::Coord;
 use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
+use aes::cipher::{KeyInit, IvInit};
+use aes::{Aes128, Aes192, Aes256};
+use cbc::Decryptor;
 use reqwest::blocking::Client;
+use serde_json;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::time::SystemTime;
@@ -598,23 +603,26 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     // Decrypt with AES-CBC
     let decrypted = match mode {
         1 => {
-            let cipher = aes::Aes128::new_from_slice(encryption_key)
+            let cipher = Aes128::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
-            cbc::Decryptor::new(cipher, cbc::Padding::Pkcs7, iv)
+            Decryptor::new_from_slice(cipher, iv)
+                .map_err(|e| ProviderError::Zip(format!("AES IV error: {}", e)))?
                 .decrypt_padded_vec_mut(encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         2 => {
-            let cipher = aes::Aes192::new_from_slice(encryption_key)
+            let cipher = Aes192::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
-            cbc::Decryptor::new(cipher, cbc::Padding::Pkcs7, iv)
+            Decryptor::new_from_slice(cipher, iv)
+                .map_err(|e| ProviderError::Zip(format!("AES IV error: {}", e)))?
                 .decrypt_padded_vec_mut(encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
         _ => {
-            let cipher = aes::Aes256::new_from_slice(encryption_key)
+            let cipher = Aes256::new_from_slice(encryption_key)
                 .map_err(|e| ProviderError::Zip(format!("AES key error: {}", e)))?;
-            cbc::Decryptor::new(cipher, cbc::Padding::Pkcs7, iv)
+            Decryptor::new_from_slice(cipher, iv)
+                .map_err(|e| ProviderError::Zip(format!("AES IV error: {}", e)))?
                 .decrypt_padded_vec_mut(encrypted_body)
                 .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
         }
