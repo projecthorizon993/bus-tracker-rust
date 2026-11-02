@@ -5,6 +5,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  release:
+    types: [ published ]
 
 jobs:
   build:
@@ -24,8 +26,16 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Upload Windows binary
+      - name: Upload Windows binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: bus-tracker-desktop.exe
           path: crates/tracker-desktop/target/release/tracker-desktop.exe
+
+      - name: Create release and upload binary
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: crates/tracker-desktop/target/release/tracker-desktop.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
