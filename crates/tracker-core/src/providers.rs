@@ -8,7 +8,7 @@ use aes::{Aes128, Aes192, Aes256};
 use cipher::generic_array::GenericArray;
 use reqwest::blocking::Client;
 use serde_json;
-use sha2::Digest;
+use sha1::Digest;
 use std::collections::HashMap;
 use std::time::SystemTime;
 
@@ -609,16 +609,16 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     let _expected_pw_verify = u16::from_le_bytes([data[pw_verify_start], data[pw_verify_start + 1]]);
     let encrypted_body = &data[encrypted_start..data.len() - mac_len];
 
-    // Derive key and IV from password + salt using SHA-256 iteration (WinZip AES)
+    // Derive key and IV from password + salt using SHA-1 iteration (WinZip AES standard)
     let mut key_material = Vec::new();
     let mut prev = {
         let mut temp = password.to_vec();
         temp.extend_from_slice(salt);
-        sha2::Sha256::digest(&temp).to_vec()
+        Sha1::digest(&temp).to_vec()
     };
     key_material.extend_from_slice(&prev);
     for _ in 1..1000 {
-        let digest = sha2::Sha256::digest(&prev);
+        let digest = Sha1::digest(&prev);
         prev = digest.to_vec();
         key_material.extend_from_slice(&prev);
     }
