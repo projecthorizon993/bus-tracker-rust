@@ -15,5 +15,5 @@ zip = "2"
 dirs = "5"
 # AES decryption for VinBus ZIP (WinZip AES format)
 aes = "0.8"
-cbc = "1.0"
+cbc = "0.12"
 sha2 = "0.10"
