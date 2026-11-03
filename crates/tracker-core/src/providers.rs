@@ -513,7 +513,7 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
         let aes_info = parse_zip_aes_extra(extra_field);
 
         if aes_info.is_some() {
-            info!("[VinBus] Found AES-encrypted ZIP entry (mode={:?})", aes_info.map(|m| m.0));
+            info!("[VinBus] Found AES-encrypted ZIP entry (mode={:?})", aes_info.as_ref().map(|m| m.0));
         } else {
             debug!("[VinBus] Found non-AES ZIP entry");
         }
