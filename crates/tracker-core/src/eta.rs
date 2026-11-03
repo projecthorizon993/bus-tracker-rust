@@ -1,5 +1,6 @@
 use crate::models::*;
 use chrono::Timelike;
+use log::{debug, info, warn};
 use std::collections::HashMap;
 
 /// Station-to-station ETA estimation engine
@@ -47,8 +48,13 @@ impl EtaEngine {
         buses: &[Bus],
         congestion: Option<&CongestionInfo>,
     ) -> Option<EtaEstimate> {
+        info!("[ETA] Estimating ETA: origin={} dest={} region={} provider={} buses={}", origin_id, dest_id, region, provider, buses.len());
+
         let origin = self.stations.get(origin_id)?;
         let dest = self.stations.get(dest_id)?;
+
+        debug!("[ETA] Origin: {} ({}, {})", origin.name, origin.coord.lat, origin.coord.lng);
+        debug!("[ETA] Destination: {} ({}, {})", dest.name, dest.coord.lat, dest.coord.lng);
 
         // Find routes that contain both stations
         let matching_routes: Vec<&Route> = self.routes.values()
@@ -61,8 +67,11 @@ impl EtaEngine {
             .collect();
 
         if matching_routes.is_empty() {
+            warn!("[ETA] No matching routes found for origin={} dest={} region={} provider={}", origin_id, dest_id, region, provider);
             return None;
         }
+
+        debug!("[ETA] Found {} matching routes", matching_routes.len());
 
         // Pick the route with fewest stops between origin and destination
         let route = matching_routes.iter()
@@ -76,19 +85,26 @@ impl EtaEngine {
         let di = route.stations.iter().position(|s| s == dest_id).unwrap();
         let dwell_stops = (di - oi - 1) as u32; // intermediate stops
 
+        debug!("[ETA] Route: {} (stops={}, dwell_stops={})", route.id, route.stations.len(), dwell_stops);
+
         // Find buses on this route
         let route_buses: Vec<&Bus> = buses.iter()
             .filter(|b| b.route_id == route.id || b.route_no.as_deref() == Some(&route.name))
             .collect();
 
+        debug!("[ETA] Buses on route {}: {}", route.id, route_buses.len());
+
         // If no bus on this specific route, try any bus in region
         let candidate_bus = if let Some(b) = route_buses.first() {
             Some(*b)
         } else {
+            debug!("[ETA] No bus on route {}, trying any bus in region", route.id);
             buses.first()
         };
 
         let candidate_bus = candidate_bus?;
+
+        debug!("[ETA] Candidate bus: {} speed={}km/h last_update={}", candidate_bus.vehicle_id, candidate_bus.speed_kmh, candidate_bus.last_update);
 
         // Compute along-route distance from bus to destination
         let along_route = self.compute_along_route_distance(candidate_bus, route, dest_id);
@@ -102,6 +118,12 @@ impl EtaEngine {
             .filter(|s| s.hour_of_day == hour)
             .map(|s| s.avg_speed_kmh)
             .unwrap_or(0.0);
+
+        if historical_speed > 0.0 {
+            debug!("[ETA] Historical speed for segment {} hour {}: {} km/h", segment_key, hour, historical_speed);
+        } else {
+            debug!("[ETA] No historical speed for segment {} hour {}", segment_key, hour);
+        }
 
         // Blend: 70% live, 30% historical if available
         let blended_speed = if historical_speed > 0.0 {
@@ -118,6 +140,7 @@ impl EtaEngine {
             multiplier: 1.3,
         };
         let congestion = congestion.unwrap_or(&default_congestion);
+        debug!("[ETA] Congestion: {} (level={}, multiplier={})", congestion.label, congestion.level, congestion.multiplier);
 
         // Base seconds = distance_km / speed_kmh * 3600
         let distance_km = along_route.bus_to_dest_meters / 1000.0;
@@ -135,9 +158,9 @@ impl EtaEngine {
         let eta_min = eta_min.max(1);
 
         // Confidence
-        let confidence = if candidate_bus.last_update > 0
-            && chrono::Utc::now().timestamp() - candidate_bus.last_update < 300
-        {
+        let now = chrono::Utc::now().timestamp();
+        let data_fresh = candidate_bus.last_update > 0 && now - candidate_bus.last_update < 300;
+        let confidence = if data_fresh {
             if historical_speed > 0.0 {
                 ConfidenceLevel::High
             } else {
@@ -147,9 +170,13 @@ impl EtaEngine {
             ConfidenceLevel::Low
         };
 
+        debug!("[ETA] Data fresh={}, confidence={:?}, data_age_seconds={}", data_fresh, confidence, if candidate_bus.last_update > 0 { now - candidate_bus.last_update } else { -1 });
+
         // Range: +/- 20%
         let eta_low = (eta_min as f32 * 0.8).round() as i32;
         let eta_high = (eta_min as f32 * 1.25).round() as i32;
+
+        info!("[ETA] ETA result: {}–{} min (best={}) confidence={:?} distance={:.1}m speed={:.1}km/h", eta_low, eta_high, eta_min, confidence, along_route.bus_to_dest_meters, blended_speed);
 
         Some(EtaEstimate {
             origin_station: origin.name.clone(),

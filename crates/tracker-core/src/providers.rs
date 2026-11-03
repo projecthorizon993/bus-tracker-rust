@@ -6,6 +6,7 @@ use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes::{Aes128, Aes192, Aes256};
 use cipher::generic_array::GenericArray;
+use log::{debug, error, info, warn};
 use reqwest::blocking::Client;
 use serde_json;
 use sha1::{Digest, Sha1};
@@ -103,31 +104,60 @@ impl Provider for VinBusProvider {
             time
         );
 
-        let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+        info!("[VinBus] Fetching buses for region={} url={}", region, url);
 
-        let text = client
+        let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
+            .map_err(|e| {
+                error!("[VinBus] Failed to build HTTP client: {}", e);
+                ProviderError::Http(e.to_string())
+            })?;
+
+        let response = client
             .get(&url)
             .header("client-version", "android|690")
             .header("device-id", format!("web-{}", time))
             .header("language", "en")
             .header("auth-key", VINBUS_AUTH_KEY)
             .header("Accept", "application/json")
-            .send()
-            .map_err(|e| ProviderError::Http(e.to_string()))?
-            .text()
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+            .send();
+
+        let text = match response {
+            Ok(resp) => {
+                let status = resp.status();
+                debug!("[VinBus] HTTP response status={}", status);
+                if !status.is_success() {
+                    error!("[VinBus] API returned non-success status: {}", status);
+                }
+                resp.text().map_err(|e| {
+                    error!("[VinBus] Failed to read response body: {}", e);
+                    ProviderError::Http(e.to_string())
+                })?
+            }
+            Err(e) => {
+                error!("[VinBus] HTTP request failed: {}", e);
+                return Err(ProviderError::Http(e.to_string()));
+            }
+        };
+
+        debug!("[VinBus] Response body length={} bytes", text.len());
+        debug!("[VinBus] Response body preview={}", &text[..std::cmp::min(200, text.len())]);
 
         // Try direct JSON first
         if let Ok(buses) = parse_vinbus_json(&text) {
             if !buses.is_empty() {
+                info!("[VinBus] Parsed {} bus(es) from direct JSON", buses.len());
                 return Ok(buses);
             }
+            debug!("[VinBus] Direct JSON returned empty bus list");
+        } else {
+            debug!("[VinBus] Direct JSON parse failed");
         }
 
         // Try to find ZIP URL in response (ZIP is AES-encrypted — standard zip crate can't decrypt)
         if let Some(zip_url) = extract_zip_url(&text) {
+            info!("[VinBus] Found ZIP URL: {}", zip_url);
             return fetch_vinbus_zip(&client, &zip_url).map_err(|e| {
+                error!("[VinBus] ZIP fetch/decrypt failed: {}", e);
                 ProviderError::Zip(format!(
                     "ZIP is AES-encrypted (password: {}). Standard zip crate cannot decrypt. {}",
                     VINBUS_ZIP_PASSWORD, e
@@ -135,6 +165,7 @@ impl Provider for VinBusProvider {
             });
         }
 
+        debug!("[VinBus] No ZIP URL found in response");
         Ok(vec![])
     }
 
@@ -417,14 +448,23 @@ fn extract_zip_url(text: &str) -> Option<String> {
 
 /// Download and parse AES-encrypted ZIP from VinBus
 fn fetch_vinbus_zip(client: &Client, zip_url: &str) -> Result<Vec<Bus>, ProviderError> {
+    info!("[VinBus] Downloading ZIP from: {}", zip_url);
+
     let bytes = client
         .get(zip_url)
         .header("auth-key", VINBUS_AUTH_KEY)
         .send()
-        .map_err(|e| ProviderError::Http(e.to_string()))?
+        .map_err(|e| {
+            error!("[VinBus] ZIP download request failed: {}", e);
+            ProviderError::Http(e.to_string())
+        })?
         .bytes()
-        .map_err(|e| ProviderError::Http(e.to_string()))?;
+        .map_err(|e| {
+            error!("[VinBus] Failed to read ZIP bytes: {}", e);
+            ProviderError::Http(e.to_string())
+        })?;
 
+    info!("[VinBus] Downloaded {} ZIP bytes", bytes.len());
     parse_vinbus_zip_bytes(&bytes)
 }
 
@@ -432,14 +472,19 @@ fn fetch_vinbus_zip(client: &Client, zip_url: &str) -> Result<Vec<Bus>, Provider
 fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
     let mut buses = Vec::new();
 
+    info!("[VinBus] Parsing ZIP bytes (total={})", data.len());
+
     // Walk through ZIP local file headers manually to find AES-encrypted entries.
     let mut offset: usize = 0;
+    let mut entry_count = 0;
     while offset + 4 <= data.len() {
         // Local file header signature: 0x04034b50 ("PK\x03\x04")
         if &data[offset..offset + 4] != b"PK\x03\x04" {
+            debug!("[VinBus] No more ZIP entries at offset={}", offset);
             break;
         }
         if offset + 30 > data.len() {
+            debug!("[VinBus] Incomplete ZIP header at offset={}", offset);
             break;
         }
 
@@ -457,6 +502,7 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
         let data_start = extra_start + extra_field_len as usize;
 
         if data_start > data.len() {
+            debug!("[VinBus] ZIP data start exceeds file length at offset={}", offset);
             break;
         }
 
@@ -466,14 +512,30 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
         // Check for WinZip AES extra field (0x9901)
         let aes_info = parse_zip_aes_extra(extra_field);
 
+        if aes_info.is_some() {
+            info!("[VinBus] Found AES-encrypted ZIP entry (mode={:?})", aes_info.map(|m| m.0));
+        } else {
+            debug!("[VinBus] Found non-AES ZIP entry");
+        }
+
         let encrypted_data_end = data_start + compressed_size as usize;
         if encrypted_data_end > data.len() {
+            debug!("[VinBus] Encrypted data end exceeds file length");
             break;
         }
         let encrypted_data = &data[data_start..encrypted_data_end];
 
         let decrypted = if let Some(aes) = aes_info {
-            decrypt_winzip_aes(VINBUS_ZIP_PASSWORD.as_bytes(), &aes, encrypted_data)?
+            match decrypt_winzip_aes(VINBUS_ZIP_PASSWORD.as_bytes(), &aes, encrypted_data) {
+                Ok(dec) => {
+                    debug!("[VinBus] Decrypted entry: {} -> {} bytes", encrypted_data.len(), dec.len());
+                    dec
+                }
+                Err(e) => {
+                    error!("[VinBus] AES decryption failed: {}", e);
+                    continue;
+                }
+            }
         } else {
             encrypted_data.to_vec()
         };
@@ -484,13 +546,22 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
             let mut decoder = flate2::read::ZlibDecoder::new(&decrypted[..]);
             let mut buf = Vec::new();
             match std::io::Read::read_to_end(&mut decoder, &mut buf) {
-                Ok(_) => buf,
+                Ok(_) => {
+                    debug!("[VinBus] Zlib decompressed: {} -> {} bytes", decrypted.len(), buf.len());
+                    buf
+                }
                 Err(_) => {
                     let mut decoder = flate2::read::DeflateDecoder::new(&decrypted[..]);
                     let mut buf = Vec::new();
                     match std::io::Read::read_to_end(&mut decoder, &mut buf) {
-                        Ok(_) => buf,
-                        Err(_) => decrypted,
+                        Ok(_) => {
+                            debug!("[VinBus] Deflate decompressed: {} -> {} bytes", decrypted.len(), buf.len());
+                            buf
+                        }
+                        Err(_) => {
+                            debug!("[VinBus] Decompression failed, using raw decrypted bytes");
+                            decrypted
+                        }
                     }
                 }
             }
@@ -500,10 +571,16 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
 
         if let Ok(text) = String::from_utf8(decompressed) {
             if let Ok(parsed) = parse_vinbus_json(&text) {
+                info!("[VinBus] Parsed {} bus(es) from ZIP entry", parsed.len());
                 buses.extend(parsed);
+            } else {
+                debug!("[VinBus] ZIP entry text is not valid JSON");
             }
+        } else {
+            debug!("[VinBus] ZIP entry text is not valid UTF-8");
         }
 
+        entry_count += 1;
         offset = encrypted_data_end;
         // Skip data descriptor if present (bit 3 of general purpose bit flag)
         if general_purpose_bit & 0x08 != 0 {
@@ -512,6 +589,7 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
         }
     }
 
+    info!("[VinBus] ZIP parsing complete: {} entries processed, {} buses found", entry_count, buses.len());
     Ok(buses)
 }
 
@@ -591,7 +669,10 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     };
     let iv_size = 16usize;
 
+    debug!("[VinBus] AES decryption: mode={} (key_size={}), salt_len={}, data_len={}", mode, key_size, salt.len(), data.len());
+
     if data.len() < salt.len() + 2 {
+        error!("[VinBus] Encrypted data too short: len={}, need at least {}", data.len(), salt.len() + 2);
         return Err(ProviderError::Zip("Encrypted data too short".to_string()));
     }
 
@@ -603,11 +684,14 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     let mac_len = 10usize;
 
     if data.len() < encrypted_start + mac_len {
+        error!("[VinBus] Encrypted data too short for MAC: len={}", data.len());
         return Err(ProviderError::Zip("Encrypted data too short for MAC".to_string()));
     }
 
     let _expected_pw_verify = u16::from_le_bytes([data[pw_verify_start], data[pw_verify_start + 1]]);
     let encrypted_body = &data[encrypted_start..data.len() - mac_len];
+
+    debug!("[VinBus] Salt: {:?}, encrypted_body_len={}", &salt[..std::cmp::min(8, salt.len())], encrypted_body.len());
 
     // Derive key and IV from password + salt using SHA-1 iteration (WinZip AES standard)
     let mut key_material = Vec::new();
@@ -626,6 +710,8 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
     let encryption_key = &key_material[0..key_size];
     let iv = &key_material[key_size..key_size + iv_size];
 
+    debug!("[VinBus] Derived encryption_key_len={}, iv_len={}", key_size, iv.len());
+
     // Decrypt with AES-CBC (manual implementation using cipher traits)
     type Aes128Dec = Aes128;
     type Aes192Dec = Aes192;
@@ -633,25 +719,47 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
 
     let decrypted = match mode {
         1 => {
+            debug!("[VinBus] Using AES-128-CBC");
             let cipher = Aes128Dec::new_from_slice(encryption_key)
-                .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
+                .map_err(|e| {
+                    error!("[VinBus] AES-128 init failed: {}", e);
+                    ProviderError::Zip(format!("AES init error: {}", e))
+                })?;
             aes_cbc_decrypt(&cipher, iv, encrypted_body)
-                .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
+                .map_err(|e| {
+                    error!("[VinBus] AES-128-CBC decrypt failed: {}", e);
+                    ProviderError::Zip(format!("AES decrypt error: {}", e))
+                })?
         }
         2 => {
+            debug!("[VinBus] Using AES-192-CBC");
             let cipher = Aes192Dec::new_from_slice(encryption_key)
-                .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
+                .map_err(|e| {
+                    error!("[VinBus] AES-192 init failed: {}", e);
+                    ProviderError::Zip(format!("AES init error: {}", e))
+                })?;
             aes_cbc_decrypt(&cipher, iv, encrypted_body)
-                .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
+                .map_err(|e| {
+                    error!("[VinBus] AES-192-CBC decrypt failed: {}", e);
+                    ProviderError::Zip(format!("AES decrypt error: {}", e))
+                })?
         }
         _ => {
+            debug!("[VinBus] Using AES-256-CBC");
             let cipher = Aes256Dec::new_from_slice(encryption_key)
-                .map_err(|e| ProviderError::Zip(format!("AES init error: {}", e)))?;
+                .map_err(|e| {
+                    error!("[VinBus] AES-256 init failed: {}", e);
+                    ProviderError::Zip(format!("AES init error: {}", e))
+                })?;
             aes_cbc_decrypt(&cipher, iv, encrypted_body)
-                .map_err(|e| ProviderError::Zip(format!("AES decrypt error: {}", e)))?
+                .map_err(|e| {
+                    error!("[VinBus] AES-256-CBC decrypt failed: {}", e);
+                    ProviderError::Zip(format!("AES decrypt error: {}", e))
+                })?
         }
     };
 
+    debug!("[VinBus] AES decryption succeeded: {} bytes", decrypted.len());
     Ok(decrypted)
 }
 
@@ -688,18 +796,31 @@ impl Provider for GsmProvider {
 /// GSM-specific: get location for a device (inherent method, not part of Provider trait)
 impl GsmProvider {
     pub fn get_device_location(&self, device_id: &str) -> Result<serde_json::Value, ProviderError> {
+        info!("[GreenSM] Fetching device location for device_id={}", device_id);
+
         let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+            .map_err(|e| {
+                error!("[GreenSM] Failed to build HTTP client: {}", e);
+                ProviderError::Http(e.to_string())
+            })?;
         let url = format!("{}/broadcasting/v1/public/location/{}", "https://api.gsm-api.net", device_id);
+        info!("[GreenSM] GET {}", url);
         let value: serde_json::Value = client
             .get(&url)
             .header("x-api-key", crate::models::keys::GSM_API_KEY)
             .header("x-device-id", format!("web-{}", SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()))
             .send()
-            .map_err(|e| ProviderError::Http(e.to_string()))?
+            .map_err(|e| {
+                error!("[GreenSM] HTTP request failed: {}", e);
+                ProviderError::Http(e.to_string())
+            })?
             .json()
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+            .map_err(|e| {
+                error!("[GreenSM] Failed to parse JSON response: {}", e);
+                ProviderError::Parse(e.to_string())
+            })?;
+        info!("[GreenSM] Device location fetched successfully");
         Ok(value)
     }
 }
@@ -726,20 +847,33 @@ impl Provider for IhanoiProvider {
 
     fn fetch_congestion(&self, region: &str) -> Result<Option<CongestionInfo>, ProviderError> {
         if region != "hn" {
+            debug!("[iHanoi] Region {} not supported for congestion", region);
             return Ok(None);
         }
+        info!("[iHanoi] Fetching traffic cameras for region={}", region);
         let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+            .map_err(|e| {
+                error!("[iHanoi] Failed to build HTTP client: {}", e);
+                ProviderError::Http(e.to_string())
+            })?;
         let url = "https://cds.hanoi.gov.vn/api/1.0/public/video-wall-cameras-v2?page=1&refresh=0";
+        info!("[iHanoi] GET {}", url);
         let _resp: serde_json::Value = client
             .get(url)
             .header("Accept", "application/json")
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
             .send()
-            .map_err(|e| ProviderError::Http(e.to_string()))?
+            .map_err(|e| {
+                error!("[iHanoi] HTTP request failed: {}", e);
+                ProviderError::Http(e.to_string())
+            })?
             .json()
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+            .map_err(|e| {
+                error!("[iHanoi] Failed to parse JSON response: {}", e);
+                ProviderError::Parse(e.to_string())
+            })?;
 
+        info!("[iHanoi] Traffic cameras fetched successfully");
         Ok(Some(CongestionInfo {
             level: 2,
             label: "Unknown (camera ref)".to_string(),
