@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use log::info;
 use tracker_core::{
-    EtaEngine, ProviderRegistry, CongestionInfo,
+    init_file_logger, EtaEngine, ProviderRegistry, CongestionInfo,
 };
 
 // ============ Shared App State ============
@@ -108,7 +108,7 @@ struct BusInfo {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    init_file_logger().expect("Failed to initialize file logger");
     info!("Starting bus-tracker web UI on http://localhost:3000");
 
     let state = AppState::default();

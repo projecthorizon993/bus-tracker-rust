@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use log::info;
-use tracker_core::{EtaEngine, ProviderRegistry, Station, Route};
+use tracker_core::{init_file_logger, EtaEngine, ProviderRegistry, Station, Route};
 
 #[derive(Parser)]
 #[command(name = "bus-tracker")]
@@ -37,7 +37,7 @@ enum Commands {
 }
 
 fn main() {
-    env_logger::init();
+    init_file_logger().expect("Failed to initialize file logger");
     info!("Starting bus-tracker CLI");
 
     let cli = Cli::parse();
