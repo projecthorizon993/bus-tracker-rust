@@ -48,14 +48,3 @@ pub fn init_file_logger() -> Result<(), Box<dyn std::error::Error>> {
     log::set_max_level(log::LevelFilter::Debug);
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_file_logger_creation() {
-        // Just verify the module compiles
-        assert!(true);
-    }
-}
