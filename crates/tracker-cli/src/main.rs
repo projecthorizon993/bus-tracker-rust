@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use log::info;
 use tracker_core::{EtaEngine, ProviderRegistry, Station, Route};
 
 #[derive(Parser)]
@@ -36,6 +37,9 @@ enum Commands {
 }
 
 fn main() {
+    env_logger::init();
+    info!("Starting bus-tracker CLI");
+
     let cli = Cli::parse();
 
     match cli.command {

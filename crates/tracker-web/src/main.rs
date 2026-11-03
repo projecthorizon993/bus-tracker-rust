@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use log::info;
 use tracker_core::{
     EtaEngine, ProviderRegistry, CongestionInfo,
 };
@@ -107,6 +108,9 @@ struct BusInfo {
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
+    info!("Starting bus-tracker web UI on http://localhost:3000");
+
     let state = AppState::default();
 
     let app = Router::new()
