@@ -106,6 +106,31 @@ impl Provider for VinBusProvider {
 
         info!("[VinBus] Fetching buses for region={} url={}", region, url);
 
+        // Retry up to 3 times on transient failures
+        let mut last_err: Option<String> = None;
+        for attempt in 0..3 {
+            let result = self.fetch_buses_once(&url, time);
+            match result {
+                Ok(buses) => {
+                    if !buses.is_empty() {
+                        info!("[VinBus] Parsed {} bus(es)", buses.len());
+                        return Ok(buses);
+                    }
+                    info!("[VinBus] Parsed 0 buses, retrying...");
+                }
+                Err(e) => {
+                    last_err = Some(e.to_string());
+                    warn!("[VinBus] Attempt {} failed: {}", attempt + 1, e);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+        Err(last_err
+            .map(|e| ProviderError::Http(format!("VinBus failed after 3 retries: {e}")))
+            .unwrap_or_else(|| ProviderError::Http("VinBus failed after 3 retries".into())))
+    }
+
+    fn fetch_buses_once(&self, url: &str, time: u64) -> Result<Vec<Bus>, ProviderError> {
         let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
             .map_err(|e| {
                 error!("[VinBus] Failed to build HTTP client: {}", e);
@@ -113,12 +138,13 @@ impl Provider for VinBusProvider {
             })?;
 
         let response = client
-            .get(&url)
+            .get(url)
             .header("client-version", "android|690")
             .header("device-id", format!("web-{}", time))
             .header("language", "en")
             .header("auth-key", VINBUS_AUTH_KEY)
             .header("Accept", "application/json")
+            .header("User-Agent", "VinBus/1.0 (Android)")
             .send();
 
         let text = match response {
@@ -435,10 +461,10 @@ fn extract_zip_url(text: &str) -> Option<String> {
     let lower = text.to_lowercase();
     let zip_pos = lower.find(".zip")?;
     let start = text[..zip_pos].rfind("http").unwrap_or(0);
-    let _end = text[zip_pos..]
+    let end = text[zip_pos..]
         .find(|c: char| ['"', '\'', ' ', '<', '>'].contains(&c))
         .unwrap_or(text.len() - zip_pos);
-    let url = &text[start..zip_pos + 4];
+    let url = &text[start..zip_pos + end];
     if url.starts_with("http") {
         Some(url.to_string())
     } else {
@@ -693,18 +719,22 @@ fn decrypt_winzip_aes(password: &[u8], aes_info: &(u16, Vec<u8>), data: &[u8]) -
 
     debug!("[VinBus] Salt: {:?}, encrypted_body_len={}", &salt[..std::cmp::min(8, salt.len())], encrypted_body.len());
 
-    // Derive key and IV from password + salt using SHA-1 iteration (WinZip AES standard)
+    // Derive key and IV from password + salt using WinZip AES key derivation.
+    // WinZip uses counter-based SHA-1: SHA1(password + salt + counter_byte)
+    // for each 20-byte block, counter starts at 1 (big-endian).
     let mut key_material = Vec::new();
-    let mut prev = {
+    let mut counter: u32 = 1;
+    let mut counter_bytes = [0u8; 4];
+    while key_material.len() < key_size + iv_size {
         let mut temp = password.to_vec();
         temp.extend_from_slice(salt);
-        Sha1::digest(&temp).to_vec()
-    };
-    key_material.extend_from_slice(&prev);
-    for _ in 1..1000 {
-        let digest = Sha1::digest(&prev);
-        prev = digest.to_vec();
-        key_material.extend_from_slice(&prev);
+        counter_bytes[0] = (counter >> 24) as u8;
+        counter_bytes[1] = (counter >> 16) as u8;
+        counter_bytes[2] = (counter >> 8) as u8;
+        counter_bytes[3] = counter as u8;
+        temp.extend_from_slice(&counter_bytes);
+        key_material.extend_from_slice(&Sha1::digest(&temp));
+        counter += 1;
     }
 
     let encryption_key = &key_material[0..key_size];
