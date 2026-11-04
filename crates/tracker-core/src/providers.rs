@@ -128,7 +128,7 @@ impl Provider for VinBusProvider {
     }
 
     fn fetch_stations(&self, region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
-        let url = format!("https://api.busmap.vn/v1/stations");
+        let url = "https://api.busmap.vn/v1/stations".to_string();
         info!("[VinBus] Fetching stations for region={} url={}", region, url);
 
         let client = Client::builder()
