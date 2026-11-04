@@ -6,7 +6,7 @@ use crate::models::keys::{VINBUS_AUTH_KEY, VINBUS_ZIP_PASSWORD};
 use aes::cipher::{BlockDecrypt, KeyInit};
 use aes::{Aes128, Aes192, Aes256};
 use cipher::generic_array::GenericArray;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use reqwest::blocking::Client;
 use serde_json;
 use sha1::{Digest, Sha1};
@@ -130,6 +130,21 @@ impl Provider for VinBusProvider {
             .unwrap_or_else(|| ProviderError::Http("VinBus failed after 3 retries".into())))
     }
 
+    fn fetch_stations(&self, _region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
+        Ok(vec![])
+    }
+
+    fn fetch_route(&self, _route_id: &str) -> Result<Option<crate::models::Route>, ProviderError> {
+        Ok(None)
+    }
+
+    fn fetch_congestion(&self, _region: &str) -> Result<Option<CongestionInfo>, ProviderError> {
+        Ok(None)
+    }
+}
+
+/// VinBus-specific inherent methods (not part of the Provider trait)
+impl VinBusProvider {
     fn fetch_buses_once(&self, url: &str, time: u64) -> Result<Vec<Bus>, ProviderError> {
         let client = Client::builder().timeout(std::time::Duration::from_secs(15)).build()
             .map_err(|e| {
@@ -194,22 +209,7 @@ impl Provider for VinBusProvider {
         debug!("[VinBus] No ZIP URL found in response");
         Ok(vec![])
     }
-
-    fn fetch_route(&self, _route_id: &str) -> Result<Option<crate::models::Route>, ProviderError> {
-        Ok(None)
-    }
-
-    fn fetch_congestion(&self, _region: &str) -> Result<Option<CongestionInfo>, ProviderError> {
-        Ok(None)
-    }
-
-    fn fetch_stations(&self, _region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
-        Ok(vec![])
-    }
 }
-
-/// ---------- Demo data provider (fallback when APIs fail) ----------
-pub struct DemoProvider;
 
 impl DemoProvider {
     /// Sample Hanoi stations
