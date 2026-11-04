@@ -211,6 +211,8 @@ impl VinBusProvider {
     }
 }
 
+pub struct DemoProvider;
+
 impl DemoProvider {
     /// Sample Hanoi stations
     pub fn hanoi_stations() -> Vec<crate::models::Station> {
