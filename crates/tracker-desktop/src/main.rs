@@ -1,9 +1,14 @@
 use eframe::egui;
 use app::TrackerApp;
+use log::info;
+use tracker_core::init_file_logger;
 
 mod app;
 
 fn main() -> eframe::Result<()> {
+    init_file_logger().expect("Failed to initialize file logger");
+    info!("Starting Bus Tracker desktop UI");
+
     eframe::run_native(
         "Bus Tracker - VinBus / GreenSM / iHanoi",
         eframe::NativeOptions {
