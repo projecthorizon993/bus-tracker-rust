@@ -515,3 +515,88 @@ impl Provider for IhanoiProvider {
         Ok(vec![])
     }
 }
+
+/// Parse VinBus JSON response (non-ZIP path)
+fn parse_vinbus_json(text: &str) -> Result<Vec<Bus>, ProviderError> {
+    let value: serde_json::Value = serde_json::from_str(text).map_err(|e| ProviderError::Parse(e.to_string()))?;
+
+    let buses = extract_bus_array(&value);
+    let mut result = Vec::new();
+
+    for b in buses {
+        if let Some(bus) = bus_from_json_value(&b) {
+            result.push(bus);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Extract array of bus objects from various JSON shapes
+fn extract_bus_array(value: &serde_json::Value) -> Vec<serde_json::Value> {
+    if let Some(arr) = value.as_array() {
+        return arr.clone();
+    }
+    if let Some(list) = value.get("list").and_then(|v| v.as_array()) {
+        return list.clone();
+    }
+    if let Some(buses) = value.get("buses").and_then(|v| v.as_array()) {
+        return buses.clone();
+    }
+    if let Some(data) = value.get("data").and_then(|v| v.as_array()) {
+        return data.clone();
+    }
+    if let Some(vehicles) = value.get("vehicles").and_then(|v| v.as_array()) {
+        return vehicles.clone();
+    }
+    // Some APIs wrap in { result: [...] }
+    if let Some(result) = value.get("result").and_then(|v| v.as_array()) {
+        return result.clone();
+    }
+    vec![]
+}
+
+/// Convert a JSON value to Bus if it has the needed fields
+fn bus_from_json_value(v: &serde_json::Value) -> Option<Bus> {
+    let vehicle_id = v.get("vehicleNumber")
+        .or_else(|| v.get("busId"))
+        .or_else(|| v.get("id"))
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())?;
+
+    let route_no = v.get("routeNo").and_then(|x| x.as_str()).map(|s| s.to_string());
+    let route_id = route_no.clone().unwrap_or_else(|| vehicle_id.clone());
+
+    let lat = v.get("lat").and_then(|x| x.as_f64())
+        .or_else(|| v.get("latitude").and_then(|x| x.as_f64()))
+        .unwrap_or(21.0285);
+    let lng = v.get("lng").and_then(|x| x.as_f64())
+        .or_else(|| v.get("longitude").and_then(|x| x.as_f64()))
+        .or_else(|| v.get("lon").and_then(|x| x.as_f64()))
+        .unwrap_or(105.8542);
+
+    let speed_kmh = v.get("speed").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
+    let heading = v.get("heading").and_then(|x| x.as_f64()).map(|x| x as f32);
+    let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("unknown").to_string();
+    let last_update = v.get("lastServerUpdateTime")
+        .and_then(|x| x.as_i64())
+        .or_else(|| v.get("last_update").and_then(|x| x.as_i64()))
+        .or_else(|| v.get("timestamp").and_then(|x| x.as_i64()))
+        .unwrap_or(0);
+
+    let distance_to_next_stop_m = v.get("distance")
+        .and_then(|x| x.as_f64()).map(|x| x as f32);
+
+    Some(Bus {
+        vehicle_id,
+        route_id,
+        route_no,
+        coord: Coord { lat, lng },
+        speed_kmh,
+        heading,
+        status,
+        last_update,
+        distance_to_next_stop_m,
+        current_stop_id: v.get("stopId").and_then(|x| x.as_str()).map(|s| s.to_string()),
+    })
+}
