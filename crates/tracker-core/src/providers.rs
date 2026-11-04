@@ -479,6 +479,7 @@ fn fetch_vinbus_zip(client: &Client, zip_url: &str) -> Result<Vec<Bus>, Provider
     let bytes = client
         .get(zip_url)
         .header("auth-key", VINBUS_AUTH_KEY)
+        .header("User-Agent", "VinBus/1.0 (Android)")
         .send()
         .map_err(|e| {
             error!("[VinBus] ZIP download request failed: {}", e);
@@ -559,6 +560,7 @@ fn parse_vinbus_zip_bytes(data: &[u8]) -> Result<Vec<Bus>, ProviderError> {
                 }
                 Err(e) => {
                     error!("[VinBus] AES decryption failed: {}", e);
+                    offset = encrypted_data_end;
                     continue;
                 }
             }
