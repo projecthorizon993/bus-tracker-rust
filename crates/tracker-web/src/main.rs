@@ -444,11 +444,11 @@ async fn plan_route_api(
     Json(req): Json<PlanRouteRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let device_id = std::env::var("BUSMAP_DEVICE_ID").unwrap_or_else(|_| "web-cli".to_string());
-    let rt = tokio::runtime::Runtime::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let busmap = BusMapClient::new(device_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let routes = rt
-        .block_on(busmap.list_routes(&req.region))
+    let routes = busmap
+        .list_routes(&req.region)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let matching: Vec<_> = routes
@@ -467,12 +467,14 @@ async fn plan_route_api(
     let route_id = route.id.as_deref().unwrap_or("unknown");
     let direction = route.direction.unwrap_or(0);
 
-    let route_info = rt
-        .block_on(busmap.get_route_info(route_id, &req.region))
+    let route_info = busmap
+        .get_route_info(route_id, &req.region)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let gps_buses = rt
-        .block_on(busmap.get_route_gps(&req.region, route_id, direction))
+    let gps_buses = busmap
+        .get_route_gps(&req.region, route_id, direction)
+        .await
         .unwrap_or_default();
 
     let core_buses: Vec<Bus> = gps_buses
