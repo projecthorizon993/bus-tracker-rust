@@ -348,16 +348,8 @@ async fn api_providers() -> Json<Vec<ProviderInfo>> {
             name: "BusMap".to_string(),
         },
         ProviderInfo {
-            id: "vinbus".to_string(),
-            name: "VinBus".to_string(),
-        },
-        ProviderInfo {
             id: "gsm".to_string(),
             name: "GreenSM / Xanh SM".to_string(),
-        },
-        ProviderInfo {
-            id: "ihanoi".to_string(),
-            name: "iHanoi Traffic Cameras".to_string(),
         },
     ])
 }

@@ -57,11 +57,15 @@ fn main() {
             let registry = tracker_core::ProviderRegistry::new();
             println!("Available providers:");
             for p in registry.list() {
-                println!("  - {} ({})", p.name(), p.id());
+                if p.id() == "busmap" || p.id() == "gsm" {
+                    println!("  - {} ({})", p.name(), p.id());
+                }
             }
             println!("\nProvider configs:");
             for config in tracker_core::ProviderRegistry::provider_configs() {
-                println!("  {}: regions {:?}", config.name, config.regions);
+                if config.id == "busmap" || config.id == "gsm" {
+                    println!("  {}: regions {:?}", config.name, config.regions);
+                }
             }
         }
         Commands::Buses { provider, region } => {
