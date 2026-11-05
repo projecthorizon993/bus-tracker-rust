@@ -45,6 +45,12 @@ jobs:
           name: tracker-cli.exe
           path: target/release/tracker-cli.exe
 
+      - name: Upload tracker-web binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracker-web.exe
+          path: target/release/tracker-web.exe
+
       - name: Upload tracker-desktop binary artifact (if built)
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,6 +64,8 @@ jobs:
         with:
           tag_name: ${{ github.ref }}
           name: Release ${{ github.ref }}
-          files: target/release/tracker-cli.exe
+          files: |
+            target/release/tracker-cli.exe
+            target/release/tracker-web.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
