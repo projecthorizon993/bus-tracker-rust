@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracker_core::{
-    init_file_logger, EtaEngine, ProviderRegistry, CongestionInfo, Station, Bus, Route,
+    EtaEngine, ProviderRegistry, CongestionInfo, Station, Bus,
 };
 use tracker_busmap::BusMapClient;
 
@@ -99,13 +99,6 @@ struct BusInfo {
     last_update: i64,
     lat: f64,
     lng: f64,
-}
-
-#[derive(Serialize)]
-struct RoutePlanInfo {
-    route_no: String,
-    station_count: usize,
-    buses: Vec<BusBoardItem>,
 }
 
 #[derive(Serialize)]
@@ -467,7 +460,7 @@ async fn plan_route_api(
                 speed_kmh: b.speed.unwrap_or(0.0),
                 heading: b.heading,
                 status: b.status.clone().unwrap_or_else(|| "unknown".to_string()),
-                last_update: b.timestamp.unwrap_or_else(|| now_seconds()),
+                last_update: b.timestamp.unwrap_or_else(now_seconds),
                 distance_to_next_stop_m: None,
                 current_stop_id: None,
             })
