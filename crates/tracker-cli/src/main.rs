@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
-use log::{error, info, warn};
+use log::{info, warn};
 use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::Timelike;
 use tracker_busmap::BusMapClient;
-use tracker_core::{CongestionInfo, ConfidenceLevel, EtaEngine, Station};
+use tracker_core::{ConfidenceLevel, EtaEngine, Station};
 
 #[derive(Parser)]
 #[command(name = "bus-tracker")]
@@ -359,7 +360,12 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
                 .map(|c| c.multiplier)
                 .unwrap_or_else(|| {
                     // Fallback: derive from live bus speed
-                    tracker_core::CongestionInfo::congestion_from_speed(bus.speed_kmh).multiplier
+                    match bus.speed_kmh {
+                        s if s > 40.0 => 1.0,
+                        s if s > 20.0 => 1.3,
+                        s if s > 10.0 => 1.7,
+                        _ => 2.0,
+                    }
                 });
 
             // ETA
@@ -367,7 +373,7 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
             let base_seconds = (distance_km / blended_speed as f64) * 3600.0;
             let adjusted_seconds = base_seconds * traffic_mult as f64;
             let eta_min = adjusted_seconds / 60.0;
-            let eta_min = eta_min.round() as i32.max(1);
+            let eta_min = (eta_min.round() as i32).max(1);
 
             // Confidence
             let gps_age = now - bus.last_update;
@@ -456,7 +462,7 @@ fn is_bus_on_route(
 ) -> bool {
     if let Some(polyline) = &route_info.polyline {
         for p in polyline {
-            if bus.coord.haversine_meters(p) < 500.0 {
+            if bus.coord.haversine_meters(&tracker_core::Coord { lat: p.lat, lng: p.lng }) < 500.0 {
                 return true;
             }
         }
