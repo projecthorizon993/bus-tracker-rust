@@ -255,7 +255,7 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
                 speed_kmh: b.speed.unwrap_or(0.0),
                 heading: b.heading,
                 status: b.status.clone().unwrap_or_else(|| "unknown".to_string()),
-                last_update: b.timestamp.unwrap_or_else(|| now_seconds()),
+                last_update: b.timestamp.unwrap_or_else(now_seconds),
                 distance_to_next_stop_m: None,
                 current_stop_id: None,
             })
