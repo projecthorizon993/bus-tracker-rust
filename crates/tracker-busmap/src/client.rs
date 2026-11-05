@@ -1,5 +1,5 @@
 use crate::models::*;
-use log::{debug, error, info, warn};
+use log::{info, warn};
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -45,7 +45,7 @@ impl BusMapClient {
         let mut headers = HeaderMap::new();
         headers.insert("package-name", HeaderValue::from_static("com.t7.busmaphn"));
         headers.insert("client-version", HeaderValue::from_static("android|20620"));
-        headers.insert("device-id", HeaderValue::from_str(&self.device_id).unwrap_or_default());
+        headers.insert("device-id", HeaderValue::from_str(&self.device_id).unwrap());
         headers.insert("language", HeaderValue::from_static("vi"));
         headers.insert("Accept", HeaderValue::from_static("application/json"));
         headers
@@ -58,9 +58,9 @@ impl BusMapClient {
             .map(|d| d.as_millis())
             .unwrap_or(0);
         let proof_input = format!("{}:Bus2019M@p_", epoch);
-        let proof = simple_hash(&proof_input);
-        headers.insert("epoch", HeaderValue::from_str(&epoch.to_string()).unwrap_or_default());
-        headers.insert("proof", HeaderValue::from_str(&proof).unwrap_or_default());
+        let proof = Self::simple_hash(&proof_input);
+        headers.insert("epoch", HeaderValue::from_str(&epoch.to_string()).unwrap());
+        headers.insert("proof", HeaderValue::from_str(&proof).unwrap());
     }
 
     /// Simple hash for proof (matches the app's Y.H function behavior approximately)
@@ -77,7 +77,7 @@ impl BusMapClient {
         let url = format!("{}/route/public/list", self.base_city);
         info!("[BusMap] GET {}", url);
 
-        let mut headers = self.default_headers();
+        let headers = self.default_headers();
         let resp = self
             .client
             .get(&url)
@@ -114,7 +114,7 @@ impl BusMapClient {
         let url = format!("{}/route/public/info", self.base_city);
         info!("[BusMap] GET {}?routeId={}&regionCode={}", url, route_id, region_code);
 
-        let mut headers = self.default_headers();
+        let headers = self.default_headers();
         let resp = self
             .client
             .get(&url)
@@ -157,7 +157,7 @@ impl BusMapClient {
             url, region_code, route_id, direction
         );
 
-        let mut headers = self.default_headers();
+        let headers = self.default_headers();
         self.sign_headers(&mut headers);
 
         let resp = self
@@ -199,7 +199,7 @@ impl BusMapClient {
         let url = format!("{}/public/busmap/estimate_bus_to_station", self.base_vn);
         info!("[BusMap] GET {} (regionCode={}, stationId={})", url, region_code, station_id);
 
-        let mut headers = self.default_headers();
+        let headers = self.default_headers();
         let resp = self
             .client
             .get(&url)
