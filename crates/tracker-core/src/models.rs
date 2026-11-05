@@ -54,7 +54,7 @@ pub struct Route {
     pub region: String,
     pub provider: String,
     pub stations: Vec<String>, // ordered station IDs
-    pub polyline: Vec<Coord>,   // route geometry
+    pub polyline: Vec<Coord>,  // route geometry
 }
 
 /// Distance along a route polyline from bus position to target station
@@ -163,7 +163,8 @@ pub const PROVIDERS: &[ProviderConfig] = &[
 pub mod keys {
     pub const VINBUS_AUTH_KEY: &str = "ViNbUs2@2lElectricDtPZG+ulbseO1WGN";
     pub const VINBUS_ZIP_PASSWORD: &str = "v!n#bUS@2023";
-    pub const GSM_API_KEY: &str = "VSve2734sdfaxTj1SEscrsRepxCzhsrgS4JHEqMJllJF71rjCFtM0T5F1at83bwmI1eSwspEc";
+    pub const GSM_API_KEY: &str =
+        "VSve2734sdfaxTj1SEscrsRepxCzhsrgS4JHEqMJllJF71rjCFtM0T5F1at83bwmI1eSwspEc";
 }
 
 /// Cache entry for historical speeds

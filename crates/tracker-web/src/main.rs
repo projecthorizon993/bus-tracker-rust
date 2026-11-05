@@ -1,18 +1,16 @@
 use axum::{
+    extract::{Json, Query, State},
+    http::StatusCode,
+    response::{Html, Redirect},
     routing::{get, post},
     Router,
-    extract::{Json, Query, State},
-    response::{Html, Redirect},
-    http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracker_core::{
-    EtaEngine, ProviderRegistry, CongestionInfo, Station, Bus,
-};
 use tracker_busmap::BusMapClient;
+use tracker_core::{Bus, CongestionInfo, EtaEngine, ProviderRegistry, Station};
 
 // ============ Shared App State ============
 
@@ -190,12 +188,19 @@ async fn providers_handler() -> Html<String> {
     )
 }
 
-async fn plan_page_handler(
-    Query(params): Query<HashMap<String, String>>,
-) -> Html<String> {
-    let provider = params.get("provider").cloned().unwrap_or_else(|| "busmap".to_string());
-    let region = params.get("region").cloned().unwrap_or_else(|| "hn".to_string());
-    let route_no = params.get("route").cloned().unwrap_or_else(|| "".to_string());
+async fn plan_page_handler(Query(params): Query<HashMap<String, String>>) -> Html<String> {
+    let provider = params
+        .get("provider")
+        .cloned()
+        .unwrap_or_else(|| "busmap".to_string());
+    let region = params
+        .get("region")
+        .cloned()
+        .unwrap_or_else(|| "hn".to_string());
+    let route_no = params
+        .get("route")
+        .cloned()
+        .unwrap_or_else(|| "".to_string());
 
     Html(format!(
         r#"<!DOCTYPE html>
@@ -338,10 +343,22 @@ async fn plan_page_handler(
 
 async fn api_providers() -> Json<Vec<ProviderInfo>> {
     Json(vec![
-        ProviderInfo { id: "busmap".to_string(), name: "BusMap".to_string() },
-        ProviderInfo { id: "vinbus".to_string(), name: "VinBus".to_string() },
-        ProviderInfo { id: "gsm".to_string(), name: "GreenSM / Xanh SM".to_string() },
-        ProviderInfo { id: "ihanoi".to_string(), name: "iHanoi Traffic Cameras".to_string() },
+        ProviderInfo {
+            id: "busmap".to_string(),
+            name: "BusMap".to_string(),
+        },
+        ProviderInfo {
+            id: "vinbus".to_string(),
+            name: "VinBus".to_string(),
+        },
+        ProviderInfo {
+            id: "gsm".to_string(),
+            name: "GreenSM / Xanh SM".to_string(),
+        },
+        ProviderInfo {
+            id: "ihanoi".to_string(),
+            name: "iHanoi Traffic Cameras".to_string(),
+        },
     ])
 }
 
@@ -352,7 +369,8 @@ async fn fetch_buses_api(
     let registry = ProviderRegistry::new();
     let p = registry.get(&req.provider).ok_or(StatusCode::NOT_FOUND)?;
 
-    let buses = p.fetch_buses(&req.region)
+    let buses = p
+        .fetch_buses(&req.region)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     {
@@ -360,15 +378,18 @@ async fn fetch_buses_api(
         *b = buses.clone();
     }
 
-    let bus_infos: Vec<BusInfo> = buses.iter().map(|b| BusInfo {
-        vehicle_id: b.vehicle_id.clone(),
-        route_no: b.route_no.clone().unwrap_or_default(),
-        speed_kmh: b.speed_kmh,
-        status: b.status.clone(),
-        last_update: b.last_update,
-        lat: b.coord.lat,
-        lng: b.coord.lng,
-    }).collect();
+    let bus_infos: Vec<BusInfo> = buses
+        .iter()
+        .map(|b| BusInfo {
+            vehicle_id: b.vehicle_id.clone(),
+            route_no: b.route_no.clone().unwrap_or_default(),
+            speed_kmh: b.speed_kmh,
+            status: b.status.clone(),
+            last_update: b.last_update,
+            lat: b.coord.lat,
+            lng: b.coord.lng,
+        })
+        .collect();
 
     Ok(Json(serde_json::json!({
         "success": true,
@@ -394,8 +415,7 @@ async fn compute_eta_api(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let engine = EtaEngine::new()
-        .with_data(Vec::new(), stations.clone());
+    let engine = EtaEngine::new().with_data(Vec::new(), stations.clone());
 
     let estimate = engine.estimate(
         &req.origin,
@@ -427,11 +447,16 @@ async fn plan_route_api(
     let rt = tokio::runtime::Runtime::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let busmap = BusMapClient::new(device_id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let routes = rt.block_on(busmap.list_routes(&req.region))
+    let routes = rt
+        .block_on(busmap.list_routes(&req.region))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let matching: Vec<_> = routes.iter()
-        .filter(|r| r.route_no.as_deref() == Some(&req.route_no) || r.route_name.as_deref() == Some(&req.route_no))
+    let matching: Vec<_> = routes
+        .iter()
+        .filter(|r| {
+            r.route_no.as_deref() == Some(&req.route_no)
+                || r.route_name.as_deref() == Some(&req.route_no)
+        })
         .collect();
 
     if matching.is_empty() {
@@ -442,18 +467,24 @@ async fn plan_route_api(
     let route_id = route.id.as_deref().unwrap_or("unknown");
     let direction = route.direction.unwrap_or(0);
 
-    let route_info = rt.block_on(busmap.get_route_info(route_id, &req.region))
+    let route_info = rt
+        .block_on(busmap.get_route_info(route_id, &req.region))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let gps_buses = rt.block_on(busmap.get_route_gps(&req.region, route_id, direction))
+    let gps_buses = rt
+        .block_on(busmap.get_route_gps(&req.region, route_id, direction))
         .unwrap_or_default();
 
-    let core_buses: Vec<Bus> = gps_buses.iter()
+    let core_buses: Vec<Bus> = gps_buses
+        .iter()
         .filter_map(|b| {
             let lat = b.lat?;
             let lng = b.lng?;
             Some(Bus {
-                vehicle_id: b.vehicle_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                vehicle_id: b
+                    .vehicle_id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 route_id: route.id.as_deref().unwrap_or("unknown").to_string(),
                 route_no: Some(req.route_no.clone()),
                 coord: tracker_core::Coord { lat, lng },
@@ -474,9 +505,16 @@ async fn plan_route_api(
         .iter()
         .enumerate()
         .map(|(i, s)| Station {
-            id: s.id.as_deref().unwrap_or(&format!("stop_{}", i)).to_string(),
+            id: s
+                .id
+                .as_deref()
+                .unwrap_or(&format!("stop_{}", i))
+                .to_string(),
             name: s.name.as_deref().unwrap_or("Unknown").to_string(),
-            coord: tracker_core::Coord { lat: s.lat.unwrap_or(21.0285), lng: s.lng.unwrap_or(105.8542) },
+            coord: tracker_core::Coord {
+                lat: s.lat.unwrap_or(21.0285),
+                lng: s.lng.unwrap_or(105.8542),
+            },
             region: req.region.clone(),
             provider: "busmap".to_string(),
         })
@@ -489,8 +527,16 @@ async fn plan_route_api(
             region: req.region.clone(),
             provider: "busmap".to_string(),
             stations: stations.iter().map(|s| s.id.clone()).collect(),
-            polyline: route_info.polyline.as_ref().unwrap_or(&vec![]).iter()
-                .map(|c| tracker_core::Coord { lat: c.lat, lng: c.lng }).collect(),
+            polyline: route_info
+                .polyline
+                .as_ref()
+                .unwrap_or(&vec![])
+                .iter()
+                .map(|c| tracker_core::Coord {
+                    lat: c.lat,
+                    lng: c.lng,
+                })
+                .collect(),
         }],
         stations.clone(),
     );
@@ -516,7 +562,11 @@ async fn plan_route_api(
             let confidence = if data_fresh { "High" } else { "Low" };
 
             let gps_auth = if data_fresh { "✓ fresh" } else { "✗ stale" };
-            let route_auth = if is_bus_on_route(bus, &route_info) { "✓ on-route" } else { "⚠ off-route" };
+            let route_auth = if is_bus_on_route(bus, &route_info) {
+                "✓ on-route"
+            } else {
+                "⚠ off-route"
+            };
 
             board_items.push(BusBoardItem {
                 vehicle_id: bus.vehicle_id.clone(),
@@ -555,9 +605,7 @@ async fn plan_route_api(
     })))
 }
 
-async fn status_api(
-    State(state): State<AppState>,
-) -> Json<serde_json::Value> {
+async fn status_api(State(state): State<AppState>) -> Json<serde_json::Value> {
     let buses = state.buses.lock().await;
     let region = state.current_region.lock().await;
     let route_no = state.route_no.lock().await;
@@ -580,7 +628,9 @@ fn now_seconds() -> i64 {
 }
 
 fn find_nearest_stop_idx(bus: &Bus, stations: &[Station]) -> Option<usize> {
-    if stations.is_empty() { return None; }
+    if stations.is_empty() {
+        return None;
+    }
     let mut nearest_idx = 0;
     let mut nearest_dist = f64::MAX;
     for (i, s) in stations.iter().enumerate() {
@@ -593,10 +643,17 @@ fn find_nearest_stop_idx(bus: &Bus, stations: &[Station]) -> Option<usize> {
     Some(nearest_idx)
 }
 
-fn is_bus_on_route(bus: &Bus, route_info: &tracker_busmap::models::BusMapRouteInfoResponse) -> bool {
+fn is_bus_on_route(
+    bus: &Bus,
+    route_info: &tracker_busmap::models::BusMapRouteInfoResponse,
+) -> bool {
     if let Some(polyline) = &route_info.polyline {
         for p in polyline {
-            if bus.coord.haversine_meters(&tracker_core::Coord { lat: p.lat, lng: p.lng }) < 500.0 {
+            if bus.coord.haversine_meters(&tracker_core::Coord {
+                lat: p.lat,
+                lng: p.lng,
+            }) < 500.0
+            {
                 return true;
             }
         }
@@ -604,7 +661,11 @@ fn is_bus_on_route(bus: &Bus, route_info: &tracker_busmap::models::BusMapRouteIn
     if let Some(stations) = &route_info.stations {
         for s in stations {
             if let (Some(lat), Some(lng)) = (s.lat, s.lng) {
-                if bus.coord.haversine_meters(&tracker_core::Coord { lat, lng }) < 500.0 {
+                if bus
+                    .coord
+                    .haversine_meters(&tracker_core::Coord { lat, lng })
+                    < 500.0
+                {
                     return true;
                 }
             }

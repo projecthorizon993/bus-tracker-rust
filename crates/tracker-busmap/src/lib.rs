@@ -3,6 +3,6 @@ pub mod models;
 
 pub use client::BusMapClient;
 pub use models::{
-    BusMapBus, BusMapRoute, BusMapRouteListResponse, BusMapRouteInfoResponse,
-    BusMapGpsResponse, BusMapStationEtaResponse,
+    BusMapBus, BusMapGpsResponse, BusMapRoute, BusMapRouteInfoResponse, BusMapRouteListResponse,
+    BusMapStationEtaResponse,
 };

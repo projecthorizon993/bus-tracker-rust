@@ -1,5 +1,5 @@
-use eframe::egui;
 use app::TrackerApp;
+use eframe::egui;
 use log::info;
 use tracker_core::init_file_logger;
 

@@ -1,11 +1,11 @@
 use eframe::egui;
-use tracker_core::{
-    EtaEngine, ProviderRegistry, Station, Route, CongestionInfo, Bus, Provider,
-    ConfidenceLevel, DataSource, DemoProvider,
-};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use tracker_core::{
+    Bus, ConfidenceLevel, CongestionInfo, DataSource, DemoProvider, EtaEngine, Provider,
+    ProviderRegistry, Route, Station,
+};
 
 #[derive(PartialEq, Clone, Copy)]
 enum Screen {
@@ -37,7 +37,11 @@ pub struct TrackerApp {
 impl TrackerApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let registry = ProviderRegistry::new();
-        let provider_names: Vec<String> = registry.list().iter().map(|p| p.name().to_string()).collect();
+        let provider_names: Vec<String> = registry
+            .list()
+            .iter()
+            .map(|p| p.name().to_string())
+            .collect();
 
         Self {
             registry,
@@ -97,14 +101,21 @@ impl eframe::App for TrackerApp {
                         // Data source badge
                         let (badge_text, badge_color) = match self.data_source {
                             DataSource::Live => ("● LIVE", egui::Color32::GREEN),
-                            DataSource::Demo => ("▲ DEMO (API unreachable)", egui::Color32::from_rgb(255, 165, 0)),
+                            DataSource::Demo => (
+                                "▲ DEMO (API unreachable)",
+                                egui::Color32::from_rgb(255, 165, 0),
+                            ),
                         };
                         ui.label(egui::RichText::new(badge_text).color(badge_color).small());
                         ui.separator();
                         ui.label(&self.status_message);
                         if let Some(ref err) = self.last_error {
                             ui.separator();
-                            ui.label(egui::RichText::new(format!("⚠ {}", err)).color(egui::Color32::RED).small());
+                            ui.label(
+                                egui::RichText::new(format!("⚠ {}", err))
+                                    .color(egui::Color32::RED)
+                                    .small(),
+                            );
                         }
                     });
                 });
@@ -119,7 +130,8 @@ impl TrackerApp {
             if ui.button(format!("{} — {}", i + 1, name)).clicked() {
                 self.selected_provider_idx = Some(i);
                 self.screen = Screen::StationPicker;
-                self.status_message = format!("Selected {}. Pick origin & destination stations.", name);
+                self.status_message =
+                    format!("Selected {}. Pick origin & destination stations.", name);
             }
         }
         ui.add_space(10.0);
@@ -127,7 +139,13 @@ impl TrackerApp {
             self.status_message = "Provider list refreshed.".to_string();
         }
         ui.add_space(20.0);
-        ui.label(egui::RichText::new("Note: VinBus ZIP is AES-encrypted. If the live API fails, demo data is used.").small().color(egui::Color32::GRAY));
+        ui.label(
+            egui::RichText::new(
+                "Note: VinBus ZIP is AES-encrypted. If the live API fails, demo data is used.",
+            )
+            .small()
+            .color(egui::Color32::GRAY),
+        );
     }
 
     fn render_station_picker(&mut self, ui: &mut egui::Ui) {
@@ -148,10 +166,16 @@ impl TrackerApp {
             egui::ComboBox::from_label("")
                 .selected_text(&region_label)
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(self.selected_region == "hn", "Hanoi (hn)").clicked() {
+                    if ui
+                        .selectable_label(self.selected_region == "hn", "Hanoi (hn)")
+                        .clicked()
+                    {
                         self.selected_region = "hn".to_string();
                     }
-                    if ui.selectable_label(self.selected_region == "hcm", "Ho Chi Minh City (hcm)").clicked() {
+                    if ui
+                        .selectable_label(self.selected_region == "hcm", "Ho Chi Minh City (hcm)")
+                        .clicked()
+                    {
                         self.selected_region = "hcm".to_string();
                     }
                 });
@@ -160,7 +184,9 @@ impl TrackerApp {
         ui.add_space(10.0);
 
         if ui.button("Load stations & buses").clicked() {
-            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string();
+            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()]
+                .id()
+                .to_string();
             let region = self.selected_region.clone();
             self.load_stations_and_buses(&provider_id, &region);
         }
@@ -174,13 +200,19 @@ impl TrackerApp {
         ui.label("Origin station:");
         egui::ComboBox::from_label("")
             .selected_text(if let Some(idx) = self.selected_origin {
-                self.stations.get(idx).map(|s| s.name.clone()).unwrap_or_default()
+                self.stations
+                    .get(idx)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default()
             } else {
                 "Select origin".to_string()
             })
             .show_ui(ui, |ui| {
                 for (i, s) in self.stations.iter().enumerate() {
-                    if ui.selectable_label(self.selected_origin == Some(i), &s.name).clicked() {
+                    if ui
+                        .selectable_label(self.selected_origin == Some(i), &s.name)
+                        .clicked()
+                    {
                         self.selected_origin = Some(i);
                     }
                 }
@@ -190,13 +222,19 @@ impl TrackerApp {
         ui.label("Destination station:");
         egui::ComboBox::from_label("")
             .selected_text(if let Some(idx) = self.selected_dest {
-                self.stations.get(idx).map(|s| s.name.clone()).unwrap_or_default()
+                self.stations
+                    .get(idx)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default()
             } else {
                 "Select destination".to_string()
             })
             .show_ui(ui, |ui| {
                 for (i, s) in self.stations.iter().enumerate() {
-                    if ui.selectable_label(self.selected_dest == Some(i), &s.name).clicked() {
+                    if ui
+                        .selectable_label(self.selected_dest == Some(i), &s.name)
+                        .clicked()
+                    {
                         self.selected_dest = Some(i);
                     }
                 }
@@ -210,7 +248,9 @@ impl TrackerApp {
 
         let compute_btn = egui::Button::new("Compute ETA");
         if ui.add_enabled(can_compute, compute_btn).clicked() {
-            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string();
+            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()]
+                .id()
+                .to_string();
             self.compute_eta(provider_id);
         }
 
@@ -225,9 +265,18 @@ impl TrackerApp {
         };
 
         ui.heading("Live Bus Board");
-        ui.label(format!("{}: {} → {}", provider.name(),
-            self.stations.get(self.selected_origin.unwrap_or(0)).map(|s| s.name.as_str()).unwrap_or("?"),
-            self.stations.get(self.selected_dest.unwrap_or(0)).map(|s| s.name.as_str()).unwrap_or("?")));
+        ui.label(format!(
+            "{}: {} → {}",
+            provider.name(),
+            self.stations
+                .get(self.selected_origin.unwrap_or(0))
+                .map(|s| s.name.as_str())
+                .unwrap_or("?"),
+            self.stations
+                .get(self.selected_dest.unwrap_or(0))
+                .map(|s| s.name.as_str())
+                .unwrap_or("?")
+        ));
 
         ui.add_space(10.0);
 
@@ -239,37 +288,79 @@ impl TrackerApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("ETA").small().color(egui::Color32::GRAY));
-                            ui.label(egui::RichText::new(format!("{}–{} min", eta.eta_min_low, eta.eta_min_high))
+                            ui.label(
+                                egui::RichText::new("ETA")
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{}–{} min",
+                                    eta.eta_min_low, eta.eta_min_high
+                                ))
                                 .size(48.0)
-                                .strong());
-                            ui.label(egui::RichText::new(format!("best: {} min | {}", eta.eta_min_best, eta.confidence))
+                                .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "best: {} min | {}",
+                                    eta.eta_min_best, eta.confidence
+                                ))
                                 .color(match eta.confidence {
                                     ConfidenceLevel::High => egui::Color32::GREEN,
                                     ConfidenceLevel::Medium => egui::Color32::from_rgb(255, 165, 0),
                                     ConfidenceLevel::Low => egui::Color32::RED,
                                     ConfidenceLevel::Unknown => egui::Color32::GRAY,
-                                }));
+                                }),
+                            );
                         });
                         ui.separator();
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Distance").small().color(egui::Color32::GRAY));
-                            ui.label(egui::RichText::new(format!("{:.1} m", eta.distance_m)).strong());
-                            ui.label(egui::RichText::new("Speed").small().color(egui::Color32::GRAY));
-                            ui.label(egui::RichText::new(format!("{:.1} km/h", eta.avg_speed_kmh)).strong());
+                            ui.label(
+                                egui::RichText::new("Distance")
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{:.1} m", eta.distance_m)).strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new("Speed")
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("{:.1} km/h", eta.avg_speed_kmh))
+                                    .strong(),
+                            );
                         });
                         ui.separator();
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("Congestion").small().color(egui::Color32::GRAY));
-                            let color = egui::Color32::from_hex(&eta.congestion_color).unwrap_or(egui::Color32::GRAY);
-                            ui.label(egui::RichText::new(&eta.congestion_label).color(color).strong());
-                            ui.label(egui::RichText::new(format!("Stops: {}", eta.dwell_stops)).small());
+                            ui.label(
+                                egui::RichText::new("Congestion")
+                                    .small()
+                                    .color(egui::Color32::GRAY),
+                            );
+                            let color = egui::Color32::from_hex(&eta.congestion_color)
+                                .unwrap_or(egui::Color32::GRAY);
+                            ui.label(
+                                egui::RichText::new(&eta.congestion_label)
+                                    .color(color)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!("Stops: {}", eta.dwell_stops)).small(),
+                            );
                         });
                     });
                 });
 
             ui.add_space(10.0);
-            ui.label(egui::RichText::new(&eta.raw_details).small().color(egui::Color32::GRAY));
+            ui.label(
+                egui::RichText::new(&eta.raw_details)
+                    .small()
+                    .color(egui::Color32::GRAY),
+            );
         } else {
             ui.label("No ETA computed yet. Select stations and click Compute ETA.");
         }
@@ -304,7 +395,9 @@ impl TrackerApp {
 
         ui.add_space(10.0);
         if ui.button("Refresh now").clicked() {
-            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string();
+            let provider_id = self.registry.list()[self.selected_provider_idx.unwrap()]
+                .id()
+                .to_string();
             self.refresh_buses_only(&provider_id);
         }
         if ui.button("← Back to station picker").clicked() {
@@ -423,7 +516,11 @@ impl TrackerApp {
             .list()
             .iter()
             .find(|p| p.id() == self.registry.list()[self.selected_provider_idx.unwrap()].id())
-            .map(|_| self.registry.list()[self.selected_provider_idx.unwrap()].id().to_string());
+            .map(|_| {
+                self.registry.list()[self.selected_provider_idx.unwrap()]
+                    .id()
+                    .to_string()
+            });
         let Some(provider_id) = provider_id else {
             return;
         };
@@ -432,8 +529,12 @@ impl TrackerApp {
     }
 
     fn compute_eta(&mut self, provider_id: String) {
-        let Some(origin_idx) = self.selected_origin else { return };
-        let Some(dest_idx) = self.selected_dest else { return };
+        let Some(origin_idx) = self.selected_origin else {
+            return;
+        };
+        let Some(dest_idx) = self.selected_dest else {
+            return;
+        };
         if origin_idx == dest_idx {
             return;
         }

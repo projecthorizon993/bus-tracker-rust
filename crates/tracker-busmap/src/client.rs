@@ -88,7 +88,10 @@ impl BusMapClient {
             .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| BusMapError::Http(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         if !status.is_success() {
             return Err(BusMapError::Http(format!(
@@ -98,7 +101,8 @@ impl BusMapClient {
         }
 
         // Try various response shapes
-        let value: Value = serde_json::from_str(&text).map_err(|e| BusMapError::Parse(e.to_string()))?;
+        let value: Value =
+            serde_json::from_str(&text).map_err(|e| BusMapError::Parse(e.to_string()))?;
         let routes = extract_routes_from_value(&value);
 
         info!("[BusMap] Parsed {} routes", routes.len());
@@ -112,23 +116,26 @@ impl BusMapClient {
         region_code: &str,
     ) -> Result<BusMapRouteInfoResponse, BusMapError> {
         let url = format!("{}/route/public/info", self.base_city);
-        info!("[BusMap] GET {}?routeId={}&regionCode={}", url, route_id, region_code);
+        info!(
+            "[BusMap] GET {}?routeId={}&regionCode={}",
+            url, route_id, region_code
+        );
 
         let headers = self.default_headers();
         let resp = self
             .client
             .get(&url)
             .headers(headers)
-            .query(&[
-                ("routeId", route_id),
-                ("regionCode", region_code),
-            ])
+            .query(&[("routeId", route_id), ("regionCode", region_code)])
             .send()
             .await
             .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| BusMapError::Http(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         if !status.is_success() {
             return Err(BusMapError::Http(format!(
@@ -140,7 +147,10 @@ impl BusMapClient {
         let info: BusMapRouteInfoResponse =
             serde_json::from_str(&text).map_err(|e| BusMapError::Parse(e.to_string()))?;
 
-        info!("[BusMap] Route info parsed: stations={:?}", info.stations.as_ref().map(|s| s.len()));
+        info!(
+            "[BusMap] Route info parsed: stations={:?}",
+            info.stations.as_ref().map(|s| s.len())
+        );
         Ok(info)
     }
 
@@ -174,7 +184,10 @@ impl BusMapClient {
             .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| BusMapError::Http(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         if !status.is_success() {
             return Err(BusMapError::Http(format!(
@@ -183,7 +196,8 @@ impl BusMapClient {
             )));
         }
 
-        let value: Value = serde_json::from_str(&text).map_err(|e| BusMapError::Parse(e.to_string()))?;
+        let value: Value =
+            serde_json::from_str(&text).map_err(|e| BusMapError::Parse(e.to_string()))?;
         let buses = extract_buses_from_value(&value);
 
         info!("[BusMap] Parsed {} live bus positions", buses.len());
@@ -197,7 +211,10 @@ impl BusMapClient {
         station_id: &str,
     ) -> Result<Vec<BusMapBus>, BusMapError> {
         let url = format!("{}/public/busmap/estimate_bus_to_station", self.base_vn);
-        info!("[BusMap] GET {} (regionCode={}, stationId={})", url, region_code, station_id);
+        info!(
+            "[BusMap] GET {} (regionCode={}, stationId={})",
+            url, region_code, station_id
+        );
 
         let headers = self.default_headers();
         let resp = self
@@ -214,7 +231,10 @@ impl BusMapClient {
             .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| BusMapError::Http(e.to_string()))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| BusMapError::Http(e.to_string()))?;
 
         if !status.is_success() {
             return Err(BusMapError::Http(format!(
@@ -223,7 +243,8 @@ impl BusMapClient {
             )));
         }
 
-        let value: Value = serde_json::from_str(&text).map_err(|e| BusMapError::Parse(e.to_string()))?;
+        let value: Value =
+            serde_json::from_str(&text).map_err(|e| BusMapError::Parse(e.to_string()))?;
         let buses = extract_buses_from_value(&value);
 
         info!("[BusMap] Parsed {} station ETA buses", buses.len());
@@ -234,11 +255,17 @@ impl BusMapClient {
 /// Extract route array from various JSON response shapes
 fn extract_routes_from_value(value: &Value) -> Vec<BusMapRoute> {
     if let Some(arr) = value.as_array() {
-        return arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect();
+        return arr
+            .iter()
+            .filter_map(|v| serde_json::from_value(v.clone()).ok())
+            .collect();
     }
     for key in ["list", "data", "routes", "result"] {
         if let Some(arr) = value.get(key).and_then(|v| v.as_array()) {
-            return arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect();
+            return arr
+                .iter()
+                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                .collect();
         }
     }
     vec![]
@@ -247,11 +274,17 @@ fn extract_routes_from_value(value: &Value) -> Vec<BusMapRoute> {
 /// Extract bus array from various JSON response shapes
 fn extract_buses_from_value(value: &Value) -> Vec<BusMapBus> {
     if let Some(arr) = value.as_array() {
-        return arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect();
+        return arr
+            .iter()
+            .filter_map(|v| serde_json::from_value(v.clone()).ok())
+            .collect();
     }
     for key in ["buses", "list", "data", "result", "vehicles"] {
         if let Some(arr) = value.get(key).and_then(|v| v.as_array()) {
-            return arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect();
+            return arr
+                .iter()
+                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                .collect();
         }
     }
     vec![]

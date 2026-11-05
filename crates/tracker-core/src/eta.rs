@@ -48,16 +48,31 @@ impl EtaEngine {
         buses: &[Bus],
         congestion: Option<&CongestionInfo>,
     ) -> Option<EtaEstimate> {
-        info!("[ETA] Estimating ETA: origin={} dest={} region={} provider={} buses={}", origin_id, dest_id, region, provider, buses.len());
+        info!(
+            "[ETA] Estimating ETA: origin={} dest={} region={} provider={} buses={}",
+            origin_id,
+            dest_id,
+            region,
+            provider,
+            buses.len()
+        );
 
         let origin = self.stations.get(origin_id)?;
         let dest = self.stations.get(dest_id)?;
 
-        debug!("[ETA] Origin: {} ({}, {})", origin.name, origin.coord.lat, origin.coord.lng);
-        debug!("[ETA] Destination: {} ({}, {})", dest.name, dest.coord.lat, dest.coord.lng);
+        debug!(
+            "[ETA] Origin: {} ({}, {})",
+            origin.name, origin.coord.lat, origin.coord.lng
+        );
+        debug!(
+            "[ETA] Destination: {} ({}, {})",
+            dest.name, dest.coord.lat, dest.coord.lng
+        );
 
         // Find routes that contain both stations
-        let matching_routes: Vec<&Route> = self.routes.values()
+        let matching_routes: Vec<&Route> = self
+            .routes
+            .values()
             .filter(|r| r.region == region && r.provider == provider)
             .filter(|r| {
                 let oi = r.stations.iter().position(|s| s == origin_id);
@@ -67,28 +82,36 @@ impl EtaEngine {
             .collect();
 
         if matching_routes.is_empty() {
-            warn!("[ETA] No matching routes found for origin={} dest={} region={} provider={}", origin_id, dest_id, region, provider);
+            warn!(
+                "[ETA] No matching routes found for origin={} dest={} region={} provider={}",
+                origin_id, dest_id, region, provider
+            );
             return None;
         }
 
         debug!("[ETA] Found {} matching routes", matching_routes.len());
 
         // Pick the route with fewest stops between origin and destination
-        let route = matching_routes.iter()
-            .min_by_key(|r| {
-                let oi = r.stations.iter().position(|s| s == origin_id).unwrap();
-                let di = r.stations.iter().position(|s| s == dest_id).unwrap();
-                di - oi
-            })?;
+        let route = matching_routes.iter().min_by_key(|r| {
+            let oi = r.stations.iter().position(|s| s == origin_id).unwrap();
+            let di = r.stations.iter().position(|s| s == dest_id).unwrap();
+            di - oi
+        })?;
 
         let oi = route.stations.iter().position(|s| s == origin_id).unwrap();
         let di = route.stations.iter().position(|s| s == dest_id).unwrap();
         let dwell_stops = (di - oi - 1) as u32; // intermediate stops
 
-        debug!("[ETA] Route: {} (stops={}, dwell_stops={})", route.id, route.stations.len(), dwell_stops);
+        debug!(
+            "[ETA] Route: {} (stops={}, dwell_stops={})",
+            route.id,
+            route.stations.len(),
+            dwell_stops
+        );
 
         // Find buses on this route
-        let route_buses: Vec<&Bus> = buses.iter()
+        let route_buses: Vec<&Bus> = buses
+            .iter()
             .filter(|b| b.route_id == route.id || b.route_no.as_deref() == Some(&route.name))
             .collect();
 
@@ -98,13 +121,19 @@ impl EtaEngine {
         let candidate_bus = if let Some(b) = route_buses.first() {
             Some(*b)
         } else {
-            debug!("[ETA] No bus on route {}, trying any bus in region", route.id);
+            debug!(
+                "[ETA] No bus on route {}, trying any bus in region",
+                route.id
+            );
             buses.first()
         };
 
         let candidate_bus = candidate_bus?;
 
-        debug!("[ETA] Candidate bus: {} speed={}km/h last_update={}", candidate_bus.vehicle_id, candidate_bus.speed_kmh, candidate_bus.last_update);
+        debug!(
+            "[ETA] Candidate bus: {} speed={}km/h last_update={}",
+            candidate_bus.vehicle_id, candidate_bus.speed_kmh, candidate_bus.last_update
+        );
 
         // Compute along-route distance from bus to destination
         let along_route = self.compute_along_route_distance(candidate_bus, route, dest_id);
@@ -114,15 +143,24 @@ impl EtaEngine {
         let segment_key = format!("{}:{}:{}", route.id, origin_id, dest_id);
         let hour = chrono::Utc::now().hour();
 
-        let historical_speed = self.speed_cache.samples.get(&segment_key)
+        let historical_speed = self
+            .speed_cache
+            .samples
+            .get(&segment_key)
             .filter(|s| s.hour_of_day == hour)
             .map(|s| s.avg_speed_kmh)
             .unwrap_or(0.0);
 
         if historical_speed > 0.0 {
-            debug!("[ETA] Historical speed for segment {} hour {}: {} km/h", segment_key, hour, historical_speed);
+            debug!(
+                "[ETA] Historical speed for segment {} hour {}: {} km/h",
+                segment_key, hour, historical_speed
+            );
         } else {
-            debug!("[ETA] No historical speed for segment {} hour {}", segment_key, hour);
+            debug!(
+                "[ETA] No historical speed for segment {} hour {}",
+                segment_key, hour
+            );
         }
 
         // Blend: 70% live, 30% historical if available
@@ -140,7 +178,10 @@ impl EtaEngine {
             multiplier: 1.3,
         };
         let congestion = congestion.unwrap_or(&default_congestion);
-        debug!("[ETA] Congestion: {} (level={}, multiplier={})", congestion.label, congestion.level, congestion.multiplier);
+        debug!(
+            "[ETA] Congestion: {} (level={}, multiplier={})",
+            congestion.label, congestion.level, congestion.multiplier
+        );
 
         // Base seconds = distance_km / speed_kmh * 3600
         let distance_km = along_route.bus_to_dest_meters / 1000.0;
@@ -151,8 +192,8 @@ impl EtaEngine {
         };
 
         // Apply congestion + dwell (30 seconds per intermediate stop)
-        let adjusted_seconds = base_seconds * congestion.multiplier as f64
-            + (dwell_stops as f64 * 30.0);
+        let adjusted_seconds =
+            base_seconds * congestion.multiplier as f64 + (dwell_stops as f64 * 30.0);
 
         let eta_min = (adjusted_seconds / 60.0).round() as i32;
         let eta_min = eta_min.max(1);
@@ -170,13 +211,25 @@ impl EtaEngine {
             ConfidenceLevel::Low
         };
 
-        debug!("[ETA] Data fresh={}, confidence={:?}, data_age_seconds={}", data_fresh, confidence, if candidate_bus.last_update > 0 { now - candidate_bus.last_update } else { -1 });
+        debug!(
+            "[ETA] Data fresh={}, confidence={:?}, data_age_seconds={}",
+            data_fresh,
+            confidence,
+            if candidate_bus.last_update > 0 {
+                now - candidate_bus.last_update
+            } else {
+                -1
+            }
+        );
 
         // Range: +/- 20%
         let eta_low = (eta_min as f32 * 0.8).round() as i32;
         let eta_high = (eta_min as f32 * 1.25).round() as i32;
 
-        info!("[ETA] ETA result: {}–{} min (best={}) confidence={:?} distance={:.1}m speed={:.1}km/h", eta_low, eta_high, eta_min, confidence, along_route.bus_to_dest_meters, blended_speed);
+        info!(
+            "[ETA] ETA result: {}–{} min (best={}) confidence={:?} distance={:.1}m speed={:.1}km/h",
+            eta_low, eta_high, eta_min, confidence, along_route.bus_to_dest_meters, blended_speed
+        );
 
         Some(EtaEstimate {
             origin_station: origin.name.clone(),
@@ -201,17 +254,28 @@ impl EtaEngine {
 
     /// Compute distance along the route polyline from bus position to destination station.
     /// Falls back to straight-line haversine if polyline is empty.
-    fn compute_along_route_distance(&self, bus: &Bus, route: &Route, dest_id: &str) -> AlongRouteInfo {
+    fn compute_along_route_distance(
+        &self,
+        bus: &Bus,
+        route: &Route,
+        dest_id: &str,
+    ) -> AlongRouteInfo {
         let dest = match self.stations.get(dest_id) {
             Some(d) => d,
-            None => return AlongRouteInfo {
-                bus_to_dest_meters: bus.coord.haversine_meters(&Coord { lat: 0.0, lng: 0.0 }),
-                stations_between: 0,
-                nearest_route_segment: None,
-            },
+            None => {
+                return AlongRouteInfo {
+                    bus_to_dest_meters: bus.coord.haversine_meters(&Coord { lat: 0.0, lng: 0.0 }),
+                    stations_between: 0,
+                    nearest_route_segment: None,
+                }
+            }
         };
 
-        let di = route.stations.iter().position(|s| s == dest_id).unwrap_or(0);
+        let di = route
+            .stations
+            .iter()
+            .position(|s| s == dest_id)
+            .unwrap_or(0);
         let stations_between = di as u32;
 
         if route.polyline.is_empty() {
@@ -265,13 +329,17 @@ impl EtaEngine {
     /// Record a historical speed sample for a route segment
     pub fn record_speed(&mut self, segment_key: &str, speed_kmh: f32) {
         let hour = chrono::Utc::now().hour();
-        let entry = self.speed_cache.samples.entry(segment_key.to_string()).or_insert(SpeedSample {
-            segment_key: segment_key.to_string(),
-            hour_of_day: hour,
-            avg_speed_kmh: speed_kmh,
-            sample_count: 1,
-            last_updated: chrono::Utc::now().timestamp(),
-        });
+        let entry = self
+            .speed_cache
+            .samples
+            .entry(segment_key.to_string())
+            .or_insert(SpeedSample {
+                segment_key: segment_key.to_string(),
+                hour_of_day: hour,
+                avg_speed_kmh: speed_kmh,
+                sample_count: 1,
+                last_updated: chrono::Utc::now().timestamp(),
+            });
         // Running average
         let n = entry.sample_count as f32;
         entry.avg_speed_kmh = (entry.avg_speed_kmh * n + speed_kmh) / (n + 1.0);
@@ -286,13 +354,33 @@ impl EtaEngine {
 
     pub fn congestion_from_speed(speed_kmh: f32) -> CongestionInfo {
         if speed_kmh > 40.0 {
-            CongestionInfo { level: 1, label: "Thông thoáng".to_string(), color: "#34C759".to_string(), multiplier: 1.0 }
+            CongestionInfo {
+                level: 1,
+                label: "Thông thoáng".to_string(),
+                color: "#34C759".to_string(),
+                multiplier: 1.0,
+            }
         } else if speed_kmh > 20.0 {
-            CongestionInfo { level: 2, label: "Ùn nhẹ".to_string(), color: "#FF9500".to_string(), multiplier: 1.3 }
+            CongestionInfo {
+                level: 2,
+                label: "Ùn nhẹ".to_string(),
+                color: "#FF9500".to_string(),
+                multiplier: 1.3,
+            }
         } else if speed_kmh > 10.0 {
-            CongestionInfo { level: 3, label: "Ùn nặng".to_string(), color: "#FF3B30".to_string(), multiplier: 1.7 }
+            CongestionInfo {
+                level: 3,
+                label: "Ùn nặng".to_string(),
+                color: "#FF3B30".to_string(),
+                multiplier: 1.7,
+            }
         } else {
-            CongestionInfo { level: 4, label: "Ùn tắc".to_string(), color: "#AF52DE".to_string(), multiplier: 2.0 }
+            CongestionInfo {
+                level: 4,
+                label: "Ùn tắc".to_string(),
+                color: "#AF52DE".to_string(),
+                multiplier: 2.0,
+            }
         }
     }
 }

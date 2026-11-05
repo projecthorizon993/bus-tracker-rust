@@ -1,7 +1,7 @@
+use chrono::Timelike;
 use clap::{Parser, Subcommand};
 use log::{info, warn};
 use std::time::{SystemTime, UNIX_EPOCH};
-use chrono::Timelike;
 use tracker_busmap::BusMapClient;
 use tracker_core::{ConfidenceLevel, EtaEngine, Station};
 
@@ -95,7 +95,12 @@ fn main() {
                 Err(e) => eprintln!("Error fetching buses: {}", e),
             }
         }
-        Commands::Eta { provider, region, from, to } => {
+        Commands::Eta {
+            provider,
+            region,
+            from,
+            to,
+        } => {
             let registry = tracker_core::ProviderRegistry::new();
             let p = match registry.get(&provider) {
                 Some(p) => p,
@@ -118,28 +123,34 @@ fn main() {
                 }
             };
 
-            let estimate = engine.estimate(
-                &from,
-                &to,
-                &region,
-                &provider,
-                &buses,
-                congestion.as_ref(),
-            );
+            let estimate =
+                engine.estimate(&from, &to, &region, &provider, &buses, congestion.as_ref());
             match estimate {
                 Some(e) => {
                     println!("=== Station-to-Station ETA ===");
                     println!("From: {} → To: {}", e.origin_station, e.dest_station);
                     println!("Vehicle: {}", e.vehicle_id.as_deref().unwrap_or("unknown"));
-                    println!("ETA: {}–{} min (best: {} min)", e.eta_min_low, e.eta_min_high, e.eta_min_best);
+                    println!(
+                        "ETA: {}–{} min (best: {} min)",
+                        e.eta_min_low, e.eta_min_high, e.eta_min_best
+                    );
                     println!("Confidence: {:?}", e.confidence);
-                    println!("Distance: {:.1} m | Avg speed: {:.1} km/h", e.distance_m, e.avg_speed_kmh);
-                    println!("Congestion: {} ({})", e.congestion_label, e.congestion_color);
+                    println!(
+                        "Distance: {:.1} m | Avg speed: {:.1} km/h",
+                        e.distance_m, e.avg_speed_kmh
+                    );
+                    println!(
+                        "Congestion: {} ({})",
+                        e.congestion_label, e.congestion_color
+                    );
                     println!("Intermediate stops: {}", e.dwell_stops);
                     println!("Details: {}", e.raw_details);
                 }
                 None => {
-                    println!("No route found from {} to {} on {}/{}", from, to, provider, region);
+                    println!(
+                        "No route found from {} to {} on {}/{}",
+                        from, to, provider, region
+                    );
                 }
             }
         }
@@ -162,18 +173,14 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
     let rt = tokio::runtime::Runtime::new()?;
     let busmap = BusMapClient::new(device_id)?;
 
-    info!(
-        "[PLAN] Looking up route {} in region {}",
-        route_no, region
-    );
+    info!("[PLAN] Looking up route {} in region {}", route_no, region);
 
     // Step 1: List routes and find the one matching route_no
     let routes = rt.block_on(busmap.list_routes(region))?;
     let matching: Vec<_> = routes
         .iter()
         .filter(|r| {
-            r.route_no.as_deref() == Some(route_no)
-                || r.route_name.as_deref() == Some(route_no)
+            r.route_no.as_deref() == Some(route_no) || r.route_name.as_deref() == Some(route_no)
         })
         .collect();
 
@@ -208,7 +215,11 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
         .iter()
         .enumerate()
         .map(|(i, s)| Station {
-            id: s.id.as_deref().unwrap_or(&format!("stop_{}", i)).to_string(),
+            id: s
+                .id
+                .as_deref()
+                .unwrap_or(&format!("stop_{}", i))
+                .to_string(),
             name: s.name.as_deref().unwrap_or("Unknown").to_string(),
             coord: tracker_core::Coord {
                 lat: s.lat.unwrap_or(21.0285),
@@ -248,7 +259,10 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
             let lat = b.lat?;
             let lng = b.lng?;
             Some(tracker_core::Bus {
-                vehicle_id: b.vehicle_id.clone().unwrap_or_else(|| "unknown".to_string()),
+                vehicle_id: b
+                    .vehicle_id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
                 route_id: route.id.as_deref().unwrap_or("unknown").to_string(),
                 route_no: Some(route_no.to_string()),
                 coord: tracker_core::Coord { lat, lng },
@@ -278,7 +292,10 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
             .fetch_congestion(region)
         {
             Ok(Some(c)) => {
-                info!("[PLAN] iHanoi congestion: {} (level={}, mult={})", c.label, c.level, c.multiplier);
+                info!(
+                    "[PLAN] iHanoi congestion: {} (level={}, mult={})",
+                    c.label, c.level, c.multiplier
+                );
                 Some(c)
             }
             Ok(None) => {
@@ -308,7 +325,10 @@ fn run_plan(route_no: &str, region: &str) -> Result<(), Box<dyn std::error::Erro
                 .as_ref()
                 .unwrap_or(&vec![])
                 .iter()
-                .map(|c| tracker_core::Coord { lat: c.lat, lng: c.lng })
+                .map(|c| tracker_core::Coord {
+                    lat: c.lat,
+                    lng: c.lng,
+                })
                 .collect(),
         }],
         stations.clone(),
@@ -462,7 +482,11 @@ fn is_bus_on_route(
 ) -> bool {
     if let Some(polyline) = &route_info.polyline {
         for p in polyline {
-            if bus.coord.haversine_meters(&tracker_core::Coord { lat: p.lat, lng: p.lng }) < 500.0 {
+            if bus.coord.haversine_meters(&tracker_core::Coord {
+                lat: p.lat,
+                lng: p.lng,
+            }) < 500.0
+            {
                 return true;
             }
         }
@@ -470,7 +494,11 @@ fn is_bus_on_route(
     if let Some(stations) = &route_info.stations {
         for s in stations {
             if let (Some(lat), Some(lng)) = (s.lat, s.lng) {
-                if bus.coord.haversine_meters(&tracker_core::Coord { lat, lng }) < 500.0 {
+                if bus
+                    .coord
+                    .haversine_meters(&tracker_core::Coord { lat, lng })
+                    < 500.0
+                {
                     return true;
                 }
             }
@@ -486,10 +514,7 @@ fn now_seconds() -> i64 {
         .unwrap_or(0)
 }
 
-fn load_bundled_data(
-    _region: &str,
-    _provider: &str,
-) -> (Vec<Station>, Vec<tracker_core::Route>) {
+fn load_bundled_data(_region: &str, _provider: &str) -> (Vec<Station>, Vec<tracker_core::Route>) {
     (Vec::new(), Vec::new())
 }
 

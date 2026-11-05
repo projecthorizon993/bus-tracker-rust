@@ -37,10 +37,7 @@ impl log::Log for FileLogger {
 /// Initialize file logging to `log.txt` in the current working directory.
 pub fn init_file_logger() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::current_dir()?.join("log.txt");
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
+    let file = OpenOptions::new().create(true).append(true).open(&path)?;
     let logger = Box::new(FileLogger {
         file: Mutex::new(file),
     });
