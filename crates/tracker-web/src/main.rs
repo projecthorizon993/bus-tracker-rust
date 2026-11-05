@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use log::info;
 use tracker_core::{
-    init_file_logger, EtaEngine, ProviderRegistry, CongestionInfo, Station, Bus, Route, EtaEstimate,
+    init_file_logger, EtaEngine, ProviderRegistry, CongestionInfo, Station, Bus, Route,
 };
 use tracker_busmap::BusMapClient;
 
@@ -118,6 +117,30 @@ struct BusBoardItem {
     speed_kmh: f32,
     auth_gps: String,
     auth_route: String,
+}
+
+// ============ Main ============
+
+#[tokio::main]
+async fn main() {
+    tracker_core::init_file_logger().expect("Failed to initialize file logger");
+    log::info!("Starting bus-tracker web UI on http://localhost:3000");
+
+    let state = AppState::default();
+
+    let app = Router::new()
+        .route("/", get(index_handler))
+        .route("/providers", get(providers_handler))
+        .route("/plan", get(plan_page_handler))
+        .route("/api/providers", get(api_providers))
+        .route("/api/fetch-buses", post(fetch_buses_api))
+        .route("/api/compute-eta", post(compute_eta_api))
+        .route("/api/plan-route", post(plan_route_api))
+        .route("/api/status", get(status_api))
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
 
 // ============ Page Handlers ============
@@ -466,7 +489,7 @@ async fn plan_route_api(
         })
         .collect();
 
-    let engine = EtaEngine::new().with_data(
+    let _engine = EtaEngine::new().with_data(
         vec![tracker_core::Route {
             id: route.id.as_deref().unwrap_or("unknown").to_string(),
             name: req.route_no.clone(),
@@ -493,7 +516,7 @@ async fn plan_route_api(
             let distance_km = distance_m / 1000.0;
             let base_seconds = (distance_km / live_speed as f64) * 3600.0;
             let adjusted_seconds = base_seconds * traffic_mult as f64;
-            let eta_min = (adjusted_seconds / 60.0).round() as i32.max(1);
+            let eta_min = ((adjusted_seconds / 60.0).round() as i32).max(1);
 
             let gps_age = now - bus.last_update;
             let data_fresh = gps_age < 300;
@@ -524,7 +547,7 @@ async fn plan_route_api(
     }
     {
         let mut s = state.stations.lock().await;
-        *s = stations;
+        *s = stations.clone();
     }
     {
         let mut reg = state.current_region.lock().await;
@@ -580,7 +603,9 @@ fn find_nearest_stop_idx(bus: &Bus, stations: &[Station]) -> Option<usize> {
 fn is_bus_on_route(bus: &Bus, route_info: &tracker_busmap::models::BusMapRouteInfoResponse) -> bool {
     if let Some(polyline) = &route_info.polyline {
         for p in polyline {
-            if bus.coord.haversine_meters(p) < 500.0 { return true; }
+            if bus.coord.haversine_meters(&tracker_core::Coord { lat: p.lat, lng: p.lng }) < 500.0 {
+                return true;
+            }
         }
     }
     if let Some(stations) = &route_info.stations {
