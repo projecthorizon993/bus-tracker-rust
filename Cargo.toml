@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/tracker-core",
+    "crates/tracker-busmap",
     "crates/tracker-cli",
     "crates/tracker-desktop",
     "crates/tracker-web",

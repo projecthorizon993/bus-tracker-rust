@@ -1,0 +1,13 @@
+[package]
+name = "tracker-busmap"
+description = "BusMap API client: route list, route detail, live GPS, station ETA"
+edition = "2021"
+
+[dependencies]
+tracker-core = { path = "../tracker-core" }
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+thiserror = "1"

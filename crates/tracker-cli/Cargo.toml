@@ -4,6 +4,9 @@ edition = "2021"
 
 [dependencies]
 tracker-core = { path = "../tracker-core" }
+tracker-busmap = { path = "../tracker-busmap" }
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }

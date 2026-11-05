@@ -279,6 +279,11 @@ impl EtaEngine {
         entry.last_updated = chrono::Utc::now().timestamp();
     }
 
+    /// Public read-only access to the speed cache (for historical speed lookups)
+    pub fn speed_cache(&self) -> &SpeedCache {
+        &self.speed_cache
+    }
+
     pub fn congestion_from_speed(speed_kmh: f32) -> CongestionInfo {
         if speed_kmh > 40.0 {
             CongestionInfo { level: 1, label: "Thông thoáng".to_string(), color: "#34C759".to_string(), multiplier: 1.0 }
