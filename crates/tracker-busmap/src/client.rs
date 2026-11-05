@@ -1,5 +1,5 @@
 use crate::models::*;
-use log::{info, warn};
+use log::info;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -157,7 +157,7 @@ impl BusMapClient {
             url, region_code, route_id, direction
         );
 
-        let headers = self.default_headers();
+        let mut headers = self.default_headers();
         self.sign_headers(&mut headers);
 
         let resp = self
