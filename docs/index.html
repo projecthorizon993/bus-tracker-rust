@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VinBus Tracker - Live Bus Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; }
+        #map { height: 100vh; width: 100%; position: relative; }
+        
+        /* Sidebar */
+        #sidebar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 320px;
+            max-height: 90vh;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 16px;
+            z-index: 1000;
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+        }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        
+        .header h1 {
+            font-size: 1.25rem;
+            color: #1a1a1e;
+            margin: 0;
+        }
+        
+        .refresh-btn {
+            background: #e8f4fd;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #0078d4;
+        }
+        
+        .refresh-btn:hover {
+            background: #d4e8fd;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        .status-online {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .status-offline {
+            background: #ffebee;
+            color: #c62828;
+        }
+        
+        .status-loading {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .provider-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+        }
+        
+        .bus-list {
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        
+        .bus-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: white;
+        }
+        
+        .bus-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 8px;
+        }
+        
+        .bus-id {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #1a1a1e;
+        }
+        
+        .bus-route {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .bus-details {
+            display: flex;
+            gap: 16px;
+            font-size: 0.85rem;
+            color: #555;
+        }
+        
+        .bus-detail-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .eta-badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .eta-high { background: #e8f5e9; color: #2e7d32; }
+        .eta-medium { background: #fff3e0; color: #f57c00; }
+        .eta-low { background: #ffebee; color: #c62828; }
+        
+        .no-buses {
+            text-align: center;
+            padding: 40px 20px;
+            color: #888;
+        }
+        
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #e0e0e0;
+            border-top-color: #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Mobile */
+        @media (max-width: 768px) {
+            #sidebar {
+                width: 100%;
+                position: static;
+                height: auto;
+                max-height: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div id="sidebar">
+        <div class="header">
+            <h1>🚌 Bus Tracker</h1>
+            <button class="refresh-btn" onclick="refreshData()">
+                ↻ Refresh
+            </button>
+        </div>
+        
+        <div class="status-badge" id="statusBadge">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusText">Loading...</span>
+        </div>
+        
+        <div class="provider-select">
+            <label>Provider:</label>
+            <select id="providerSelect" onchange="changeProvider(this.value)">
+                <option value="vinbus">VinBus (Hanoi/HCMC)</option>
+                <option value="gsm">GreenSM / Xanh SM</option>
+                <option value="ihanoi">iHanoi Traffic Cameras</option>
+            </select>
+        </div>
+        
+        <div id="busCount">
+            <strong>0</span> buses found
+        </div>
+        
+        <div class="bus-list" id="busList">
+            <div class="no-buses">Loading bus data...</div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Configuration - Update these URLs if the API changes
+        const CONFIG = {
+            vinbus: {
+                baseUrl: 'https://api.busmap.vn',
+                endpoints: {
+                    buses: '/v1/client/public/bus_data/compress_data_by_time',
+                    stations: '/v1/stations'
+                },
+                authKey: 'ViNbUs2@2lElectricDtPZG+ulbseO1WGN'
+            },
+            gsm: {
+                baseUrl: 'https://api.gsm-api.net',
+                endpoints: {
+                    location: '/broadcasting/v1/public/location/'
+                },
+                apiKey: 'VSve2734sdfaxTj1SEscrsRepxCzhsrgS4JHEqMJllJF71rjCFtM0T5F1at83bwmI1eSwspEc'
+            }
+        };
+
+        let map, busMarkers = {}, currentProvider = 'vinbus', currentRegion = 'hn';
+        
+        // Initialize map
+        function initMap() {
+            map = L.map('map', {
+                center: [21.0285, 105.8542], // Hanoi default
+                zoom: 13
+            });
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+        }
+        
+        initMap();
+        
+        // Fetch buses from API
+        async function fetchBuses() {
+            const statusEl = document.getElementById('statusBadge');
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const busList = document.getElementById('busList');
+            
+            statusDot.className = 'dot';
+            statusText.textContent = 'Loading...';
+            statusBadge.className = 'status-badge status-loading';
+            
+            busList.innerHTML = '<div class="no-buses">Loading bus data...</div>';
+            
+            const config = CONFIG[currentProvider];
+            const region = currentRegion;
+            const time = Math.floor(Date.now() / 1000);
+            
+            let url = '';
+            let headers = {};
+            
+            if (currentProvider === 'vinbus') {
+                url = `${config.baseUrl}${config.endpoints.buses}?regionCode=${region}&time=${time}`;
+                headers = {
+                    'auth-key': config.authKey,
+                    'client-version': 'android|690',
+                    'device-id': `web-${time}`,
+                    'language': 'en',
+                    'Accept': 'application/json'
+                };
+            } else if (currentProvider === 'gsm') {
+                url = `${config.baseUrl}${config.endpoints.location}${deviceId}`;
+                headers = {
+                    'x-api-key': config.apiKey,
+                    'Accept': 'application/json'
+                };
+            }
+            
+            try {
+                const response = await fetch(url, { headers });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                statusDot.className = 'dot';
+                statusText.textContent = 'Online';
+                statusBadge.className = 'status-badge status-online';
+                
+                displayBuses(data);
+                
+            } catch (error) {
+                console.error('Fetch error:', error);
+                statusDot.className = 'dot';
+                statusText.textContent = 'Error';
+                statusBadge.className = 'status-badge status-offline';
+                busList.innerHTML = `<div class="no-buses">Error: ${error.message}</div>`;
+            }
+        }
+        
+        function displayBuses(data) {
+            const resultsTable = document.getElementById('busList');
+            busMarkers.forEach(marker => map.removeLayer(marker));
+            busMarkers = {};
+            
+            // Parse buses based on response format
+            let buses = [];
+            
+            if (Array.isArray(data)) {
+                buses = data;
+            } else if (data.buses) {
+                buses = data.buses;
+            } else if (data.list) {
+                buses = data.list;
+            } else if (data.data) {
+                buses = data.data;
+            } else if (data.buses) {
+                buses = data.buses;
+            } else {
+                buses = [];
+            }
+            
+            busList.innerHTML = buses.length === 0 
+                ? '<div class="no-buses">No buses found</div>' 
+                : '';
+            
+            buses.forEach(bus => {
+                const lat = bus.lat || bus.latitude || bus.latitude;
+                const lng = bus.lng || bus.longitude || bus.lng;
+                
+                if (!lat || !lng) return;
+                
+                const marker = L.marker([lat, lng]).addTo(map);
+                busMarkers[bus.vehicleId || bus.vehicleId || bus.id || Math.random()] = marker;
+                
+                const popupContent = `
+                    <div style="min-width: 200px;">
+                        <h4>${bus.vehicleId || bus.vehicleId || bus.id || 'Unknown'}</h4>
+                        <p><strong>Route:</strong> ${bus.routeNo || bus.routeNo || 'N/A'}</p>
+                        <p><strong>Speed:</strong> ${bus.speed_kmh || bus.speed || 0} km/h</p>
+                        <p><strong>Status:</strong> ${bus.status || 'Unknown'}</p>
+                        <p><strong>Distance to next stop:</strong> ${bus.distance_to_next_stop_m || bus.distance || 'N/A'} m</p>
+                        <p><strong>Last update:</strong> ${new Date(bus.last_update * 1000).toLocaleTimeString()}</p>
+                    </div>
+                `;
+                
+                marker.bindPopup(popupContent);
+                
+                // Add to list
+                const etaStr = bus.eta_min_best ? `${bus.eta_min_best} min` : 'N/A';
+                const busEl = document.createElement('div');
+                busEl.className = 'bus-card';
+                busEl.innerHTML = `
+                    <div class="bus-header">
+                        <div class="bus-id">${bus.vehicleId || bus.vehicleId || bus.id || 'Unknown'}</div>
+                        <div class="bus-route">${bus.routeNo || bus.routeNo || 'N/A'}</div>
+                    </div>
+                    <div class="bus-details">
+                        <div class="bus-detail-item">
+                            <span>Speed:</span>
+                            <span>${bus.speed_kmh || bus.speed || 0} km/h</span>
+                        </div>
+                        <div class="bus-detail-item">
+                            <span>Distance:</span>
+                            <span>${bus.distance_to_next_stop_m || bus.distance || 0} m</span>
+                        </div>
+                        <div class="bus-detail-item">
+                            <span>Status:</span>
+                            <span>${bus.status || 'Unknown'}</span>
+                        </div>
+                        <div class="bus-detail-item eta-badge ${bus.confidence?.toLowerCase() === 'high' ? 'eta-high' : bus.confidence?.toLowerCase() === 'medium' ? 'eta-medium' : 'eta-low'}">
+                            ETA: ${etaStr}
+                        </div>
+                    </div>
+                `;
+                busList.appendChild(busEl);
+                
+                // Click bus in list to focus map
+                busEl.addEventListener('click', () => {
+                    if (map) {
+                        map.setView([lat, lng], 16);
+                        marker.openPopup();
+                    }
+                });
+            });
+        }
+        
+        function fetchData() {
+            fetchBuses();
+        }
+        
+        function changeProvider(provider) {
+            currentProvider = provider;
+            document.getElementById('statusText').textContent = 'Loading...';
+            document.getElementById('statusBadge').className = 'status-badge status-loading';
+            fetchBuses();
+        }
+        
+        // Initial load
+        fetchBuses();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(fetchBuses, 30000);
+    </script>
+</body>
+</html>

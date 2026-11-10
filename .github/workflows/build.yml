@@ -6,6 +6,8 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
+  schedule:
+    - cron: '0 */3 * * *'  # Every 3 hours
 
 jobs:
   build:
