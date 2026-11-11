@@ -105,12 +105,6 @@
             <option value="hcm">Ho Chi Minh City (hcm)</option>
         </select>
 
-        <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Map style:</label>
-        <select class="region-select" id="mapTypeSelect" onchange="changeMapType(this.value)">
-            <option value="osm">OpenStreetMap</option>
-            <option value="vietmap">Vietmap (Vietnam)</option>
-        </select>
-
         <div class="card">
             <h3>📍 Station-to-Station ETA</h3>
             <select class="station-select" id="originSelect"></select>
@@ -155,6 +149,7 @@
         // Source: HCMC official bus system (ebms.vn)
         const CONFIG = {
             ebmsBase: 'https://apicms.ebms.vn',
+            hcmcBounds: '106.60/10.70/106.80/10.90',
         };
 
         // ============ Demo Data ============
@@ -189,7 +184,6 @@
         // ============ State ============
         let map, busMarkers = {}, stationMarkers = {}, routeLine = null;
         let currentRegion = 'hn';
-        let mapType = 'osm'; // 'osm' or 'vietmap'
         let useDemo = false;
         let stations = [];
         let buses = [];
@@ -615,24 +609,6 @@
         function changeRegion(r) {
             currentRegion = r;
             fetchData();
-        }
-
-        function changeMapType(type) {
-            mapType = type;
-            // Clear existing tile layers
-            map.eachLayer(layer => {
-                if (layer instanceof L.TileLayer) {
-                    map.removeLayer(layer);
-                }
-            });
-            if (mapType === 'vietmap') {
-                loadVietmapLayer();
-            } else {
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
-                    maxZoom: 19
-                }).addTo(map);
-            }
         }
 
         function centerMap() {
