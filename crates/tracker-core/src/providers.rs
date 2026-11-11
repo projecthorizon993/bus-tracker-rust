@@ -94,7 +94,7 @@ impl Provider for VinBusProvider {
         let region_code = region.to_lowercase();
 
         // Base URL for VinBus API
-        let base_url = "https://www.timbus.vn:9149/SearchBuyt";
+        let base_url = "http://www.timbus.vn:9149/SearchBuyt";
 
         // Multiple candidate endpoints to try
         // URL format per decompiled app: <base_url>/<method>?ReqParams=<encrypted_payload>
