@@ -93,20 +93,18 @@ impl Provider for VinBusProvider {
         // one returns data successfully.
         let region_code = region.to_lowercase();
 
+        // Base URL for VinBus API
+        let base_url = "https://www.timbus.vn:9149/SearchBuyt";
+
         // Multiple candidate endpoints to try
+        // URL format per decompiled app: <base_url>/<method>?ReqParams=<encrypted_payload>
         let attempts: Vec<(String, &'static str)> = vec![
             (
-                format!(
-                    "http://www.timbus.vn:9149/SearchBuyt?RouteBuytOptionV3?regionCode={}",
-                    region_code
-                ),
+                format!("{}/RouteBuytOptionV3", base_url),
                 "VinBus API RouteBuytOptionV3",
             ),
             (
-                format!(
-                    "http://www.timbus.vn:9149/SearchBuyt?VehicleState?regionCode={}",
-                    region_code
-                ),
+                format!("{}/VehicleState", base_url),
                 "VinBus API VehicleState",
             ),
             (
@@ -177,20 +175,24 @@ impl Provider for VinBusProvider {
 
         let mut last_err: Option<String> = None;
         for (url, desc) in attempts {
-            info!("[VinBus] Trying endpoint: {} ({})", url, desc);
-            match self.fetch_buses_once(&url) {
+            // Build encrypted payload for this attempt
+            let encrypted_payload = self.build_encrypted_payload();
+            let url_with_params = format!("{}?ReqParams={}", url, urlencoding::encode(&encrypted_payload));
+
+            info!("[VinBus] Trying endpoint: {} ({})", url_with_params, desc);
+            match self.fetch_buses_once(&url_with_params) {
                 Ok(buses) if !buses.is_empty() => {
                     info!(
                         "[VinBus] Successfully fetched {} bus(es) from {}",
-                        buses.len(), url
+                        buses.len(), url_with_params
                     );
                     return Ok(buses);
                 }
                 Ok(_) => {
-                    info!("[VinBus] Endpoint {} returned empty bus list", url);
+                    info!("[VinBus] Endpoint {} returned empty bus list", url_with_params);
                 }
                 Err(e) => {
-                    warn!("[VinBus] Endpoint {} failed: {}", url, e);
+                    warn!("[VinBus] Endpoint {} failed: {}", url_with_params, e);
                     last_err = Some(e.to_string());
                 }
             }
@@ -205,11 +207,7 @@ impl Provider for VinBusProvider {
     }
 
     fn fetch_buses_once(&self, url: &str) -> Result<Vec<Bus>, ProviderError> {
-        // Build encrypted payload for TimBus API
-        let payload = self.build_encrypted_payload();
-
-        let url_with_params = format!("{}?ReqParams={}", url, urlencoding::encode(&payload));
-
+        // url already contains ?ReqParams=<encrypted_payload> from fetch_buses()
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
@@ -219,7 +217,7 @@ impl Provider for VinBusProvider {
             })?;
 
         let response = client
-            .get(&url_with_params)
+            .get(url)
             .header("client-version", "android|690")
             .header("device-id", format!("web-{}", SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -280,7 +278,7 @@ impl Provider for VinBusProvider {
     ///    byte 3: key2_len
     ///    bytes 4..4+key1_len-1: key1
     ///    bytes 4+key1_len..4+key1_len+key2_len-1: key2
-    ///    remaining bytes: data XORed with bArr2 cyclically
+    ///    remaining bytes: encrypted data XORed with bArr2 cyclically
     /// 5. Base64 encode
     fn build_encrypted_payload(&self) -> String {
         use rand::Rng;
@@ -333,7 +331,6 @@ impl Provider for VinBusProvider {
         // Base64 encode
         base64::encode(&output)
     }
-}
 
     fn fetch_stations(&self, region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
         let url = "https://api.busmap.vn/v1/stations".to_string();
