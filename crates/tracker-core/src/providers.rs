@@ -270,43 +270,65 @@ impl Provider for VinBusProvider {
     }
 
     /// Build encrypted payload for TimBus API
-    /// Encryption scheme from decompiled app:
-    /// 1. Prepend random 4-byte int to data
-    /// 2. XOR entire buffer with random key1
-    /// 3. Output: [encrypted_data] + [key1] + [key1_len] + [key2] + [key2_len] + [checksum]
-    /// 4. Base64 encode
+    /// Encryption scheme from decompiled app (er2.m()):
+    /// 1. Build payload: [random_int(4 bytes)] + [data_bytes]
+    /// 2. Generate random key1 (10-15 bytes) and key2 (10-15 bytes)
+    /// 3. Build bArr2 = key1 XOR key2, extended to max(key1_len, key2_len)
+    /// 4. Output format:
+    ///    byte 0: key1_len
+    ///    bytes 1-2: data_length (little endian)
+    ///    byte 3: key2_len
+    ///    bytes 4..4+key1_len-1: key1
+    ///    bytes 4+key1_len..4+key1_len+key2_len-1: key2
+    ///    remaining bytes: data XORed with bArr2 cyclically
+    /// 5. Base64 encode
     fn build_encrypted_payload(&self) -> String {
-        // Build payload: [random_int(4 bytes)] + [data_bytes]
-        let mut payload = Vec::new();
-        let rand_int: i32 = rand::thread_rng().gen();
-        payload.extend_from_slice(&rand_int.to_le_bytes());
-        // Add route data (route_no = "35B" for testing)
-        let route_bytes = b"35B";
-        payload.extend_from_slice(&route_bytes);
+        use rand::Rng;
 
-        // Generate random keys
-        let key1_len = rand::thread_rng().gen_range(32..65);
+        // Build payload data: [random_int(4 bytes)] + [route_data_bytes]
+        let mut payload_data = Vec::new();
+        let rand_int: i32 = rand::thread_rng().gen();
+        payload_data.extend_from_slice(&rand_int.to_le_bytes());
+        let route_bytes = b"35B";
+        payload_data.extend_from_slice(&route_bytes);
+
+        // Generate random keys (10-15 bytes each, matching decompiled app)
+        let key1_len = rand::thread_rng().gen_range(10..16);
+        let key2_len = rand::thread_rng().gen_range(10..16);
+
         let key1: Vec<u8> = (0..key1_len).map(|_| rand::thread_rng().gen_range(48..127) as u8).collect();
-        let key2_len = rand::thread_rng().gen_range(32..65);
         let key2: Vec<u8> = (0..key2_len).map(|_| rand::thread_rng().gen_range(48..127) as u8).collect();
 
-        // XOR entire buffer with key1
-        let mut encrypted = Vec::new();
-        for (i, byte) in payload.iter().enumerate() {
-            encrypted.push(byte ^ key1[i % key1.len()]);
+        // Build bArr2 = key1 XOR key2, extended to max length
+        let max_key_len = key1.len().max(key2.len());
+        let mut b_arr2 = Vec::with_capacity(max_key_len);
+        for i in 0..max_key_len {
+            let k1 = if i < key1.len() { key1[i] } else { 0 };
+            let k2 = if i < key2.len() { key2[i] } else { 0 };
+            b_arr2.push(k1 ^ k2);
         }
 
-        // Build output: [encrypted_data] + [key1] + [key1_len] + [key2] + [key2_len] + [checksum]
-        let mut output = Vec::new();
-        output.extend_from_slice(&encrypted);
-        output.extend_from_slice(&key1);
-        output.push(key1.len() as u8);
-        output.extend_from_slice(&key2);
-        output.push(key2.len() as u8);
+        // XOR payload data with b_arr2 cyclically
+        let mut encrypted_data = Vec::with_capacity(payload_data.len());
+        for (i, byte) in payload_data.iter().enumerate() {
+            encrypted_data.push(byte ^ b_arr2[i % b_arr2.len()]);
+        }
 
-        // Checksum
-        let checksum: u8 = output.iter().sum();
-        output.push(checksum);
+        // Build output buffer:
+        // byte 0: key1_len
+        // bytes 1-2: data_length (little endian)
+        // byte 3: key2_len
+        // bytes 4..4+key1_len-1: key1
+        // bytes 4+key1_len..4+key1_len+key2_len-1: key2
+        // remaining bytes: encrypted data XORed with bArr2 cyclically
+        let mut output = Vec::new();
+        output.push(key1_len as u8);
+        output.push((payload_data.len() & 0xFF) as u8);
+        output.push(((payload_data.len() >> 8) & 0xFF) as u8);
+        output.push(key2_len as u8);
+        output.extend_from_slice(&key1);
+        output.extend_from_slice(&key2);
+        output.extend_from_slice(&encrypted_data);
 
         // Base64 encode
         base64::encode(&output)
