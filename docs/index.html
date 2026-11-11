@@ -227,8 +227,11 @@
         // ============ Map ============
         function initMap() {
             map = L.map('map', { center: [21.0285, 105.8542], zoom: 13 });
+
+            // OpenStreetMap tile layer with proper attribution
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
+                attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                maxZoom: 19
             }).addTo(map);
         }
         initMap();
