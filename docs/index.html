@@ -230,6 +230,21 @@
             return R * 2 * Math.asin(Math.sqrt(a));
         }
 
+        // Fetch with CORS proxy fallback for APIs that block cross-origin requests
+        async function fetchWithProxy(url, headers = {}) {
+            try {
+                const resp = await fetch(url, { headers });
+                if (resp.ok) return resp;
+            } catch (e) {
+                // Direct fetch failed (possibly CORS), try proxy
+            }
+            // Try CORS proxy
+            const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+            const proxyResp = await fetch(proxyUrl, { headers });
+            if (!proxyResp.ok) throw new Error('Proxy HTTP ' + proxyResp.status);
+            return proxyResp;
+        }
+
         function formatETA(min) {
             if (min < 1) return '< 1 min';
             if (min < 60) return Math.round(min) + ' min';
@@ -399,7 +414,7 @@
         async function fetchVinBus() {
             // Try BusMap city route list API (simple headers only to avoid CORS preflight)
             const routeUrl = `${CONFIG.vinbus.baseUrl}${CONFIG.vinbus.endpoints.routes}?regionCode=${currentRegion}`;
-            const routeResp = await fetch(routeUrl, {
+            const routeResp = await fetchWithProxy(routeUrl, {
                 headers: {
                     'Accept': 'application/json'
                 }
@@ -426,7 +441,7 @@
             const sampleStations = ['hn_001', 'hn_002', 'hn_003', 'hn_004', 'hn_005'];
             sampleStations.forEach(sid => {
                 busPromises.push(
-                    fetch(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`, {
+                    fetchWithProxy(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`, {
                         headers: {
                             'Accept': 'application/json',
                             'User-Agent': 'VinBus/1.0 (Android)'
@@ -464,7 +479,7 @@
 
         async function fetchIHanoi() {
             const url = `${CONFIG.ihanoi.baseUrl}${CONFIG.ihanoi.endpoints.cameras}`;
-            const resp = await fetch(url, {
+            const resp = await fetchWithProxy(url, {
                 headers: {
                     'Accept': 'application/json',
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
