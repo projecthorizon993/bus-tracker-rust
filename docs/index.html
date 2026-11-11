@@ -99,8 +99,7 @@
             <span id="statusText">Loading...</span>
         </div>
 
-        <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Region:</label>
-        <select class="region-select" id="regionSelect" onchange="changeRegion(this.value)">
+        <div class="provider-select" id="regionSelect" onchange="changeRegion(this.value)">
             <option value="hn">Hanoi (hn)</option>
             <option value="hcm">Ho Chi Minh City (hcm)</option>
         </select>
@@ -113,11 +112,15 @@
             <option value="azure">Azure Maps</option>
         </select>
 
+        <button class="compute-btn" onclick="testVinBusAPI()" style="width:100%;margin-top:8px;">Test Live API (VinBus)</button>
+
+        <div class="card">
+
         <div class="card">
             <h3>📍 Station-to-Station ETA</h3>
             <select class="station-select" id="originSelect"></select>
             <select class="station-select" id="destSelect"></select>
-            <button class="compute-btn" id="computeBtn" onclick="computeETA()">Compute ETA</button>
+            <button class="compute-btn" onclick="computeETA()">Compute ETA</button>
             <div id="etaResult" style="display:none;">
                 <div class="eta-row">
                     <div>
@@ -141,6 +144,7 @@
                 <div id="etaDetails" class="eta-small" style="margin-top:6px;"></div>
             </div>
         </div>
+        </div>
 
         <div id="busCount" style="font-weight:700; margin-bottom:8px;">0 buses</div>
         <div class="bus-list" id="busList">
@@ -159,10 +163,11 @@
         const CONFIG = {
             ebmsBase: 'https://apicms.ebms.vn',
             hcmcBounds: '106.60/10.70/106.80/10.90',
-            apiKeyEndpoint: 'https://bus-tracker-api.lequangglobal.workers.dev/api/config'
+            apiKeyEndpoint: 'https://bus-tracker-api.lequangglobal.workers.dev/api/config',
+            vinbusBase: 'http://www.timbus.vn:9149/SearchBuyt'
         };
 
-        // API keys (fetched from Cloudflare Worker at runtime - never hardcoded)
+// API keys (fetched from Cloudflare Worker at runtime - never hardcoded)
         let VIETMAP_API_KEY = ""
         let BING_MAPS_API_KEY = ""
         let AZURE_MAPS_KEY = ""
@@ -182,6 +187,112 @@
                 console.warn('Failed to load API keys from Worker:', e)
             }
         }
+
+        // ============ VinBus API Encryption (from decompiled app er2.m()) ============
+        function getChecksum(data) {
+            let sum = 0
+            for (let i = 0; i < data.length - 1; i++) {
+                sum = (sum + data[i]) & 0xFF
+            }
+            return sum
+        }
+
+        function getRandomKey(minLen = 10, maxLen = 15) {
+            const len = Math.floor(Math.random() * (maxLen - minLen + 1)) + minLen
+            const key = new Uint8Array(len)
+            for (let i = 0; i < len; i++) {
+                key[i] = Math.floor(Math.random() * 80) + 48
+            }
+            return key
+        }
+
+        function buildVinBusPayload() {
+    // Build payload: [random_int(4 bytes)] + [data_bytes]
+    const routeData = new TextEncoder().encode('35B')
+    const randInt = new Uint8Array(4)
+    for (let i = 0; i < 4; i++) {
+        randInt[i] = Math.floor(Math.random() * 256)
+    }
+    const payloadData = new Uint8Array(4 + routeData.length)
+    payloadData.set(randInt, 0)
+    payloadData.set(routeData, 4)
+
+            // Generate random keys (10-15 bytes each)
+            const key1Len = Math.floor(Math.random() * 6) + 10
+            const key2Len = Math.floor(Math.random() * 6) + 10
+            const key1 = new Uint8Array(key1Len)
+            const key2 = new Uint8Array(key2Len)
+            for (let i = 0; i < key1Len; i++) key1[i] = Math.floor(Math.random() * 80) + 48
+            for (let i = 0; i < key2Len; i++) key2[i] = Math.floor(Math.random() * 80) + 48
+
+            // Build bArr2 = key1 XOR key2, extended to max length
+            const maxKeyLen = Math.max(key1Len, key2Len)
+            const bArr2 = new Uint8Array(maxKeyLen)
+            for (let i = 0; i < maxKeyLen; i++) {
+                const k1 = i < key1Len ? key1[i] : 0
+                const k2 = i < key2Len ? key2[i] : 0
+                bArr2[i] = k1 ^ k2
+            }
+
+            // XOR payload data with bArr2 cyclically
+            const encryptedData = new Uint8Array(payloadData.length)
+            for (let i = 0; i < payloadData.length; i++) {
+                encryptedData[i] = payloadData[i] ^ bArr2[i % bArr2.length]
+            }
+
+            // Build output buffer:
+            // byte 0: key1_len
+            // bytes 1-2: data_length (little endian)
+            // byte 3: key2_len
+            // bytes 4..4+key1_len-1: key1
+            // bytes 4+key1_len..4+key1_len+key2_len-1: key2
+            // remaining bytes: encrypted data XORed with bArr2 cyclically
+            const output = new Uint8Array(4 + key1.length + key2.length + encryptedData.length)
+            output[0] = key1Len
+            output[1] = payloadData.length & 0xFF
+            output[2] = (payloadData.length >> 8) & 0xFF
+            output[3] = key2Len
+            output.set(key1, 4)
+            output.set(key2, 4 + key1Len)
+            output.set(encryptedData, 4 + key1Len + key2Len)
+
+            // Base64 encode
+            return btoa(String.fromCharCode(...output))
+        }
+
+        async function callVinBusAPI(endpoint) {
+            const encryptedPayload = buildVinBusPayload()
+            const encodedPayload = encodeURIComponent(encryptedPayload)
+            const url = `${CONFIG.vinbusBase}/${endpoint}?ReqParams=${encodedPayload}`
+            try {
+                const resp = await fetch(url)
+                if (!resp.ok) throw new Error('HTTP ' + resp.status)
+                return await resp.json()
+            } catch (e) {
+                console.warn('VinBus API error:', e)
+                return null
+            }
+        }
+
+        async function testVinBusAPI() {
+            const encryptedPayload = buildVinBusPayload()
+            const encodedPayload = encodeURIComponent(encryptedPayload)
+            const url = `${CONFIG.vinbusBase}/RouteBuytOptionV3?ReqParams=${encodedPayload}`
+            try {
+                const resp = await fetch(url)
+                if (!resp.ok) throw new Error('HTTP ' + resp.status)
+                const data = await resp.json()
+                document.getElementById('demoNote').textContent = `VinBus API test: SUCCESS! Response: ${JSON.stringify(data).substring(0, 200)}`
+                document.getElementById('demoNote').style.color = '#2e7d32'
+                return resp
+            } catch (e) {
+                console.error('VinBus API error:', e)
+                document.getElementById('demoNote').textContent = `VinBus API error: ${e.message}`
+                document.getElementById('demoNote').style.color = '#c62828'
+                return null
+            }
+        }
+
 
         // ============ Demo Data ============
         const DEMO = {
