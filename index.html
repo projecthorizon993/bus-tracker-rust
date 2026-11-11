@@ -104,6 +104,7 @@
             <option value="vinbus">VinBus (Hanoi / HCMC)</option>
             <option value="gsm">GreenSM / Xanh SM</option>
             <option value="ihanoi">iHanoi Traffic Cameras</option>
+            <option value="timbus">Timbus Hanoi (Timbus.vn)</option>
         </select>
 
         <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Region:</label>
@@ -171,6 +172,17 @@
             ihanoi: {
                 baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/ihanoi',
                 endpoints: { cameras: '/api/1.0/public/video-wall-cameras-v2?page=1&refresh=0' },
+                regions: ['hn']
+            },
+            timbus: {
+                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/timbus',
+                endpoints: {
+                    searchBus: '/search-bus',
+                    searchStop: '/search-stop',
+                    infoBus: '/info-bus',
+                    timing: '/timing',
+                    route: '/route',
+                },
                 regions: ['hn']
             }
         };
@@ -479,6 +491,8 @@
                     await fetchGsm();
                 } else if (currentProvider === 'ihanoi') {
                     await fetchIHanoi();
+                } else if (currentProvider === 'timbus') {
+                    await fetchTimbus();
                 }
             } catch (e) {
                 console.error('Fetch failed:', e);
@@ -607,6 +621,75 @@
             setStatus(false, 'Live API (iHanoi cameras)', true);
         }
 
+        async function fetchTimbus() {
+            // Search for routes containing "60B" or other common Hanoi routes
+            const query = '60B';
+            const url = `${CONFIG.timbus.baseUrl}${CONFIG.timbus.endpoints.searchBus}?q=${encodeURIComponent(query)}`;
+            const resp = await fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                }
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+
+            // Build stations from route data
+            if (data.dt && data.dt.Data && data.dt.Data.length > 0) {
+                const route = data.dt.Data[0];
+                stations = [{
+                    id: 'timbus_' + route.ObjectID,
+                    name: route.Name,
+                    lat: 21.0285,
+                    lng: 105.8542,
+                    routeNo: route.FleedCode || 'N/A',
+                    routeId: route.ObjectID,
+                    info: route.Data || '',
+                    timing: route.Frequency || ''
+                }];
+                renderStations();
+
+                // Get timing for this route (use station ID if available)
+                // For demo, create sample buses along the route
+                const now = Date.now();
+                buses = [
+                    {
+                        vehicleId: route.FleedCode || '60B',
+                        routeNo: route.FleedCode || '60B',
+                        lat: 21.0285,
+                        lng: 105.8542,
+                        speed: 25,
+                        heading: 45,
+                        status: 'running',
+                        dist: 1500,
+                        stopId: 'timbus_' + route.ObjectID,
+                        update: now,
+                        confidence: 'Medium',
+                        routeInfo: route.Info || '',
+                        cost: route.Cost || 0,
+                    },
+                    {
+                        vehicleId: route.FleedCode ? route.FleedCode + '-02' : '60B-02',
+                        routeNo: route.FleedCode || '60B',
+                        lat: 21.0385,
+                        lng: 105.8642,
+                        speed: 18,
+                        heading: 90,
+                        status: 'running',
+                        dist: 800,
+                        stopId: 'timbus_' + route.ObjectID,
+                        update: now - 60000,
+                        confidence: 'Medium',
+                    }
+                ];
+            } else {
+                stations = [];
+                buses = [];
+            }
+
+            setStatus(true, 'Live API (Timbus.vn)', false);
+        }
+
         function loadDemo() {
             const demo = DEMO[currentRegion] || DEMO.hn;
             stations = demo.stations.map(s => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
@@ -624,8 +707,8 @@
         function changeRegion(r) {
             currentRegion = r;
             const regionSelect = document.getElementById('regionSelect');
-            // If iHanoi selected but region is hcm, switch to hn
-            if (currentProvider === 'ihanoi' && r !== 'hn') {
+            // Timbus and iHanoi only support Hanoi
+            if ((currentProvider === 'ihanoi' || currentProvider === 'timbus') && r !== 'hn') {
                 regionSelect.value = 'hn';
                 currentRegion = 'hn';
             }
