@@ -13,7 +13,15 @@ export default {
       return new Response(null, { headers: CORS })
     }
 
-    // Serve frontend from GitHub Pages
+    // ============ Config endpoint: returns Vietmap API key ============
+    if (path === '/api/config') {
+      return new Response(JSON.stringify({ vietmapApiKey: env.VIETMAP_API_KEY || '' }), {
+        status: 200,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // ============ Serve frontend from GitHub Pages ============
     const htmlResp = await fetch('https://projecthorizon993.github.io/bus-tracker-rust/', {
       headers: { 'Accept': 'text/html' },
     })

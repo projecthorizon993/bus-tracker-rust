@@ -105,6 +105,12 @@
             <option value="hcm">Ho Chi Minh City (hcm)</option>
         </select>
 
+        <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Map style:</label>
+        <select class="region-select" id="mapTypeSelect" onchange="changeMapType(this.value)">
+            <option value="osm">OpenStreetMap</option>
+            <option value="vietmap">Vietmap (Vietnam)</option>
+        </select>
+
         <div class="card">
             <h3>📍 Station-to-Station ETA</h3>
             <select class="station-select" id="originSelect"></select>
@@ -146,9 +152,28 @@
     <script>
         // ============ Config ============
         // Free, no API key needed: OpenStreetMap Overpass API for bus routes & stops
+        // Vietmap.vn for better Vietnamese map tiles (requires free API key, 60K free transactions/month)
         const CONFIG = {
-            overpass: 'https://overpass-api.de/api/interpreter'
+            overpass: 'https://overpass-api.de/api/interpreter',
+            vietmapApiKeyEndpoint: 'https://bus-tracker-api.lequangglobal.workers.dev/api/config'
         };
+
+        // Vietmap API key (fetched from Cloudflare Worker at runtime)
+        let VIETMAP_API_KEY = ""
+
+        async function loadVietmapApiKey() {
+            try {
+                const resp = await fetch(CONFIG.vietmapApiKeyEndpoint, {
+                    headers: { 'Accept': 'application/json' }
+                })
+                if (resp.ok) {
+                    const data = await resp.json()
+                    VIETMAP_API_KEY = data.vietmapApiKey || ''
+                }
+            } catch (e) {
+                console.warn('Failed to load Vietmap API key from Worker:', e)
+            }
+        }
 
         // ============ Demo Data ============
         const DEMO = {
@@ -182,6 +207,7 @@
         // ============ State ============
         let map, busMarkers = {}, stationMarkers = {}, routeLine = null;
         let currentRegion = 'hn';
+        let mapType = 'osm'; // 'osm' or 'vietmap'
         let useDemo = false;
         let stations = [];
         let buses = [];
@@ -190,13 +216,34 @@
         function initMap() {
             map = L.map('map', { center: [21.0285, 105.8542], zoom: 13 });
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+            if (mapType === 'vietmap') {
+                loadVietmapLayer();
+            } else {
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+            }
+        }
+
+        async function loadVietmapLayer() {
+            if (!VIETMAP_API_KEY) {
+                console.warn('Vietmap API key not configured. Falling back to OpenStreetMap.');
+                mapType = 'osm';
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+                return;
+            }
+            // Vietmap tile layer
+            L.tileLayer(`https://tiles.vietmap.vn/v1/raster/tiles/{z}/{x}/{y}.png?apikey=${VIETMAP_API_KEY}`, {
+                attribution: '© <a href="https://maps.vietmap.vn" target="_blank" rel="noopener">VIETMAP</a> | Bản đồ: © VIETMAP',
                 maxZoom: 19
             }).addTo(map);
         }
-
-        initMap();
+        // Load Vietmap API key from Worker before initializing map
+        loadVietmapApiKey().then(() => initMap());
 
         // ============ Helpers ============
         function haversine(lat1, lng1, lat2, lng2) {
@@ -423,10 +470,39 @@
 
             const distM = candidate.dist || haversine(candidate.lat, candidate.lng, d.lat, d.lng);
             const speed = Math.max(candidate.speed || 1, 1);
-            const baseMin = (distM / 1000) / speed * 60;
-            const congestion = 1.3; // moderate
-            const dwellStops = 1;
-            let etaMin = baseMin * congestion + dwellStops * 0.5;
+
+            // Try Vietmap Routing API for congestion-aware ETA
+            let etaMin = null;
+            let routeDistanceM = null;
+            let congestionInfo = null;
+            if (VIETMAP_API_KEY) {
+                try {
+                    const vresp = await fetch(
+                        `https://maps.vietmap.vn/api/route/v4?apikey=${VIETMAP_API_KEY}&point=${o.lat},${o.lng}&point=${d.lat},${d.lng}&vehicle=car&points_encoded=false&annotations=toll,congestion,congestion_distance`,
+                        { headers: { 'Accept': 'application/json' } }
+                    );
+                    if (vresp.ok) {
+                        const vdata = await vresp.json();
+                        if (vdata.paths && vdata.paths[0]) {
+                            const path = vdata.paths[0];
+                            routeDistanceM = path.distance;
+                            // time is in milliseconds
+                            etaMin = path.time / 1000 / 60; // convert to minutes
+                            congestionInfo = path.annotations;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Vietmap routing failed:', e);
+                }
+            }
+
+            // Fallback to haversine + speed if Vietmap unavailable
+            if (etaMin === null) {
+                const baseMin = (distM / 1000) / speed * 60;
+                const congestion = 1.3; // moderate
+                const dwellStops = 1;
+                etaMin = baseMin * congestion + dwellStops * 0.5;
+            }
             etaMin = Math.max(1, Math.round(etaMin * 10) / 10);
 
             const now = Date.now();
@@ -438,8 +514,11 @@
             document.getElementById('etaBadge').className = 'eta-badge ' + (conf === 'High' ? 'eta-high' : conf === 'Medium' ? 'eta-medium' : 'eta-low');
             document.getElementById('etaBadge').textContent = conf;
             document.getElementById('etaVehicle').textContent = candidate.vehicleId;
+
+            const distKm = (routeDistanceM || distM) / 1000;
+            const congLabel = congestionInfo ? ` | Congestion: ${congestionInfo.congestion?.join(', ') || 'unknown'}` : '';
             document.getElementById('etaDetails').textContent =
-                `Distance: ${(distM/1000).toFixed(1)} km | Speed: ${speed} km/h | ${fresh ? 'GPS fresh' : 'GPS stale'}`;
+                `Distance: ${distKm.toFixed(1)} km | Speed: ${speed} km/h | ${fresh ? 'GPS fresh' : 'GPS stale'}${congLabel}`;
         }
 
         // ============ Data Fetching (OpenStreetMap Overpass API - free, no key) ============
@@ -586,6 +665,24 @@
         function changeRegion(r) {
             currentRegion = r;
             fetchData();
+        }
+
+        function changeMapType(type) {
+            mapType = type;
+            // Clear existing tile layers
+            map.eachLayer(layer => {
+                if (layer instanceof L.TileLayer) {
+                    map.removeLayer(layer);
+                }
+            });
+            if (mapType === 'vietmap') {
+                loadVietmapLayer();
+            } else {
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+            }
         }
 
         function centerMap() {
