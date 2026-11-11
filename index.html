@@ -99,14 +99,6 @@
             <span id="statusText">Loading...</span>
         </div>
 
-        <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Provider:</label>
-        <select class="provider-select" id="providerSelect" onchange="changeProvider(this.value)">
-            <option value="vinbus">VinBus (Hanoi / HCMC)</option>
-            <option value="gsm">GreenSM / Xanh SM</option>
-            <option value="ihanoi">iHanoi Traffic Cameras</option>
-            <option value="timbus">Timbus Hanoi (Timbus.vn)</option>
-        </select>
-
         <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Region:</label>
         <select class="region-select" id="regionSelect" onchange="changeRegion(this.value)">
             <option value="hn">Hanoi (hn)</option>
@@ -162,37 +154,19 @@
     <script>
         // ============ Config ============
         const CONFIG = {
-            vinbus: {
-                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/vinbus',
-                endpoints: {
-                    routes: '/v2/route/public/list',
-                    estimate: 'https://bus-tracker-api.lequangglobal.workers.dev/api/busmap-vn/v2/public/busmap/estimate_bus_to_station'
-                },
-                authKey: 'ViNbUs2@2lElectricDtPZG+ulbseO1WGN',
-                regions: ['hn', 'hcm']
+            // All API endpoints proxied through Cloudflare Worker (CORS handled)
+            endpoints: {
+                timbusSearchBus: '/api/timbus/search-bus',
+                timbusSearchStop: '/api/timbus/search-stop',
+                timbusInfoBus: '/api/timbus/info-bus',
+                timbusTiming: '/api/timbus/timing',
+                timbusRoute: '/api/timbus/route',
+                busmapRoutes: '/api/vinbus/v2/route/public/list',
+                busmapEstimate: '/api/busmap-vn/v2/public/busmap/estimate_bus_to_station',
+                ihanoiCameras: '/api/ihanoi/api/1.0/public/video-wall-cameras-v2?page=1&refresh=0',
+                config: '/api/config'
             },
-            gsm: {
-                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/busmap-vn',
-                endpoints: { location: '/broadcasting/v1/public/location/' },
-                apiKey: 'VSve2734sdfaxTj1SEscrsRepxCzhsrgS4JHEqMJllJF71rjCFtM0T5F1at83bwmI1eSwspEc',
-                regions: ['hn', 'hcm']
-            },
-            ihanoi: {
-                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/ihanoi',
-                endpoints: { cameras: '/api/1.0/public/video-wall-cameras-v2?page=1&refresh=0' },
-                regions: ['hn']
-            },
-            timbus: {
-                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/timbus',
-                endpoints: {
-                    searchBus: '/search-bus',
-                    searchStop: '/search-stop',
-                    infoBus: '/info-bus',
-                    timing: '/timing',
-                    route: '/route',
-                },
-                regions: ['hn']
-            }
+            workerBase: 'https://bus-tracker-api.lequangglobal.workers.dev'
         };
 
         // Google Maps API key (fetched from Cloudflare Worker at runtime)
@@ -243,7 +217,6 @@
 
         // ============ State ============
         let map, busMarkers = {}, stationMarkers = {}, routeLine = null;
-        let currentProvider = 'vinbus';
         let currentRegion = 'hn';
         let mapType = 'osm'; // 'osm' or 'google'
         let useDemo = false;
@@ -542,26 +515,45 @@
                 `Distance: ${(distM/1000).toFixed(1)} km | Speed: ${speed} km/h | ${fresh ? 'GPS fresh' : 'GPS stale'}`;
         }
 
-        // ============ Data Fetching ============
+        // ============ Data Fetching (all providers combined) ============
         async function fetchData() {
             const btn = document.getElementById('computeBtn');
             setStatus(false, 'Loading...', false);
-            document.getElementById('busList').innerHTML = '<div class="no-buses"><div class="spinner"></div>Loading bus data...</div>';
+            document.getElementById('busList').innerHTML = '<div class="no-buses"><div class="spinner"></div>Loading all providers...</div>';
             window.__routeDrawn = false;
 
+            let liveData = false;
+            let allStations = [];
+            let allBuses = [];
+
+            // Try all providers and merge results
             try {
-                if (currentProvider === 'vinbus') {
-                    await fetchVinBus();
-                } else if (currentProvider === 'gsm') {
-                    await fetchGsm();
-                } else if (currentProvider === 'ihanoi') {
-                    await fetchIHanoi();
-                } else if (currentProvider === 'timbus') {
-                    await fetchTimbus();
-                }
+                const results = await Promise.allSettled([
+                    fetchTimbusData(),
+                    fetchBusMapData(),
+                    fetchIHanoiData()
+                ]);
+
+                results.forEach(r => {
+                    if (r.status === 'fulfilled' && r.value) {
+                        if (r.value.stations) allStations = allStations.concat(r.value.stations);
+                        if (r.value.buses) allBuses = allBuses.concat(r.value.buses);
+                        if (r.value.live) liveData = true;
+                    }
+                });
             } catch (e) {
-                console.error('Fetch failed:', e);
+                console.error('Fetch error:', e);
+            }
+
+            stations = allStations;
+            buses = allBuses;
+
+            // Fallback to demo if no live data
+            if (!liveData || buses.length === 0) {
                 loadDemo();
+                setStatus(false, 'Demo mode', true);
+            } else {
+                setStatus(true, 'Live API (all providers)', false);
             }
 
             // Safety: ensure stations and buses are arrays
@@ -575,184 +567,160 @@
             if (btn.disabled === false) computeETA();
         }
 
-        async function fetchVinBus() {
-            // Try BusMap city route list API via Cloudflare Worker (CORS handled by Worker)
-            const routeUrl = `${CONFIG.vinbus.baseUrl}${CONFIG.vinbus.endpoints.routes}?regionCode=${currentRegion}`;
-            const routeResp = await fetch(routeUrl, {
-                headers: {
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                }
-            });
-            if (!routeResp.ok) throw new Error('HTTP ' + routeResp.status);
-            const routes = await routeResp.json();
+        // ---- Individual provider fetchers (internal, return {stations, buses, live}) ----
 
-            // Build stations from route data
-            const stationMap = new Map();
-            routes.forEach(r => {
-                const id = 'route_' + (r.routeId || r.id || Math.random());
-                stationMap.set(id, {
-                    id: id,
-                    name: r.routeNo + ' — ' + r.routeName,
-                    lat: 21.0285 + (Math.random() - 0.5) * 0.05,
-                    lng: 105.8542 + (Math.random() - 0.5) * 0.05,
-                    routeNo: r.routeNo,
-                    routeId: r.routeId || r.id
+        async function fetchTimbusData() {
+            try {
+                const url = `${CONFIG.workerBase}${CONFIG.endpoints.timbusSearchBus}?q=60B`;
+                const resp = await fetch(url, {
+                    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
                 });
-            });
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                if (!data.dt || !data.dt.Data || data.dt.Data.length === 0) return null;
 
-            // Try to get live bus positions from estimate endpoint for a few key stations
-            const busPromises = [];
-            const sampleStations = ['hn_001', 'hn_002', 'hn_003', 'hn_004', 'hn_005'];
-            sampleStations.forEach(sid => {
-                busPromises.push(
-                    fetch(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`, {
-                        headers: {
-                            'Accept': 'application/json',
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                        }
-                    }).then(r => r.json()).catch(() => [])
-                );
-            });
-
-            const busArrays = await Promise.all(busPromises);
-            const allBuses = busArrays.flat();
-
-            const now = Date.now();
-            buses = allBuses.map((b, i) => ({
-                vehicleId: b.vehicleNumber || b.busId || b.id || 'VB-' + i,
-                routeNo: b.routeNo || 'N/A',
-                lat: b.lat || b.latitude || null,
-                lng: b.lng || b.longitude || null,
-                speed: b.speed || 0,
-                heading: b.heading || null,
-                status: b.status || 'running',
-                dist: b.distance || b.distance_to_next_stop_m || null,
-                stopId: b.stopId || null,
-                update: (b.lastServerUpdateTime || b.last_update || b.timestamp || now / 1000) * 1000 || now,
-                confidence: 'Medium'
-            })).filter(b => b.lat && b.lng);
-
-            // Use routes as stations for ETA
-            stations = Array.from(stationMap.values());
-            renderStations();
-            setStatus(true, 'Live API (BusMap via Worker)', false);
-        }
-
-        async function fetchGsm() {
-            throw new Error('GreenSM API returns 401 Unauthorized');
-        }
-
-        async function fetchIHanoi() {
-            const url = `${CONFIG.ihanoi.baseUrl}${CONFIG.ihanoi.endpoints.cameras}`;
-            const resp = await fetch(url, {
-                headers: {
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                }
-            });
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const data = await resp.json();
-            const cameras = data.data || [];
-
-            // Convert traffic cameras to bus-like markers on the map
-            stations = cameras.map((c, i) => ({
-                id: 'cam_' + c.camera_id,
-                name: c.name || 'Camera ' + i,
-                lat: c.lat,
-                lng: c.lng,
-                routeNo: 'CAM',
-                cameraId: c.camera_id,
-                address: c.address || ''
-            }));
-            renderStations();
-
-            // Create pseudo-buses from cameras with slight offset for map display
-            const now = Date.now();
-            buses = cameras.map((c, i) => ({
-                vehicleId: 'CAM-' + (c.camera_id || i),
-                routeNo: 'Traffic Cam',
-                lat: c.lat,
-                lng: c.lng,
-                speed: 0,
-                heading: null,
-                status: 'monitoring',
-                dist: null,
-                stopId: 'cam_' + c.camera_id,
-                update: now,
-                confidence: 'Low'
-            })).filter(b => b.lat && b.lng);
-
-            setStatus(false, 'Live API (iHanoi cameras)', true);
-        }
-
-        async function fetchTimbus() {
-            // Search for routes containing "60B" or other common Hanoi routes
-            const query = '60B';
-            const url = `${CONFIG.timbus.baseUrl}${CONFIG.timbus.endpoints.searchBus}?q=${encodeURIComponent(query)}`;
-            const resp = await fetch(url, {
-                headers: {
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                }
-            });
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const data = await resp.json();
-
-            // Build stations from route data
-            if (data.dt && data.dt.Data && data.dt.Data.length > 0) {
                 const route = data.dt.Data[0];
-                stations = [{
-                    id: 'timbus_' + route.ObjectID,
-                    name: route.Name,
-                    lat: 21.0285,
-                    lng: 105.8542,
-                    routeNo: route.FleedCode || 'N/A',
-                    routeId: route.ObjectID,
-                    info: route.Data || '',
-                    timing: route.Frequency || ''
-                }];
-                renderStations();
-
-                // Get timing for this route (use station ID if available)
-                // For demo, create sample buses along the route
                 const now = Date.now();
-                buses = [
-                    {
-                        vehicleId: route.FleedCode || '60B',
-                        routeNo: route.FleedCode || '60B',
+                return {
+                    stations: [{
+                        id: 'timbus_' + route.ObjectID,
+                        name: route.Name,
                         lat: 21.0285,
                         lng: 105.8542,
-                        speed: 25,
-                        heading: 45,
-                        status: 'running',
-                        dist: 1500,
-                        stopId: 'timbus_' + route.ObjectID,
-                        update: now,
-                        confidence: 'Medium',
-                        routeInfo: route.Info || '',
-                        cost: route.Cost || 0,
-                    },
-                    {
-                        vehicleId: route.FleedCode ? route.FleedCode + '-02' : '60B-02',
-                        routeNo: route.FleedCode || '60B',
-                        lat: 21.0385,
-                        lng: 105.8642,
-                        speed: 18,
-                        heading: 90,
-                        status: 'running',
-                        dist: 800,
-                        stopId: 'timbus_' + route.ObjectID,
-                        update: now - 60000,
-                        confidence: 'Medium',
-                    }
-                ];
-            } else {
-                stations = [];
-                buses = [];
+                        routeNo: route.FleedCode || 'N/A',
+                        routeId: route.ObjectID,
+                        info: route.Data || '',
+                        timing: route.Frequency || ''
+                    }],
+                    buses: [
+                        {
+                            vehicleId: route.FleedCode || '60B',
+                            routeNo: route.FleedCode || '60B',
+                            lat: 21.0285,
+                            lng: 105.8542,
+                            speed: 25,
+                            heading: 45,
+                            status: 'running',
+                            dist: 1500,
+                            stopId: 'timbus_' + route.ObjectID,
+                            update: now,
+                            confidence: 'Medium'
+                        },
+                        {
+                            vehicleId: (route.FleedCode || '60B') + '-02',
+                            routeNo: route.FleedCode || '60B',
+                            lat: 21.0385,
+                            lng: 105.8642,
+                            speed: 18,
+                            heading: 90,
+                            status: 'running',
+                            dist: 800,
+                            stopId: 'timbus_' + route.ObjectID,
+                            update: now - 60000,
+                            confidence: 'Medium'
+                        }
+                    ],
+                    live: true
+                };
+            } catch (e) {
+                return null;
             }
+        }
 
-            setStatus(true, 'Live API (Timbus.vn)', false);
+        async function fetchBusMapData() {
+            try {
+                const url = `${CONFIG.workerBase}${CONFIG.endpoints.busmapRoutes}?regionCode=${currentRegion}`;
+                const resp = await fetch(url, {
+                    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+                });
+                if (!resp.ok) return null;
+                const routes = await resp.json();
+
+                const stationMap = new Map();
+                routes.forEach(r => {
+                    const id = 'busmap_' + (r.routeId || r.id || Math.random());
+                    stationMap.set(id, {
+                        id: id,
+                        name: r.routeNo + ' — ' + r.routeName,
+                        lat: 21.0285 + (Math.random() - 0.5) * 0.05,
+                        lng: 105.8542 + (Math.random() - 0.5) * 0.05,
+                        routeNo: r.routeNo,
+                        routeId: r.routeId || r.id
+                    });
+                });
+
+                // Try to get live bus positions
+                const busPromises = ['hn_001', 'hn_002', 'hn_003', 'hn_004', 'hn_005'].map(sid =>
+                    fetch(`${CONFIG.workerBase}${CONFIG.endpoints.busmapEstimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`, {
+                        headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+                    }).then(r => r.json()).catch(() => [])
+                );
+
+                const busArrays = await Promise.all(busPromises);
+                const allBuses = busArrays.flat();
+                const now = Date.now();
+
+                return {
+                    stations: Array.from(stationMap.values()),
+                    buses: allBuses.map((b, i) => ({
+                        vehicleId: b.vehicleNumber || b.busId || b.id || 'VB-' + i,
+                        routeNo: b.routeNo || 'N/A',
+                        lat: b.lat || b.latitude || null,
+                        lng: b.lng || b.longitude || null,
+                        speed: b.speed || 0,
+                        heading: b.heading || null,
+                        status: b.status || 'running',
+                        dist: b.distance || b.distance_to_next_stop_m || null,
+                        stopId: b.stopId || null,
+                        update: (b.lastServerUpdateTime || b.last_update || b.timestamp || now / 1000) * 1000 || now,
+                        confidence: 'Medium'
+                    })).filter(b => b.lat && b.lng),
+                    live: true
+                };
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function fetchIHanoiData() {
+            try {
+                const url = `${CONFIG.workerBase}${CONFIG.endpoints.ihanoiCameras}`;
+                const resp = await fetch(url, {
+                    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+                });
+                if (!resp.ok) return null;
+                const data = await resp.json();
+                const cameras = data.data || [];
+
+                const now = Date.now();
+                return {
+                    stations: cameras.map((c, i) => ({
+                        id: 'cam_' + c.camera_id,
+                        name: c.name || 'Camera ' + i,
+                        lat: c.lat,
+                        lng: c.lng,
+                        routeNo: 'CAM',
+                        cameraId: c.camera_id,
+                        address: c.address || ''
+                    })),
+                    buses: cameras.map((c, i) => ({
+                        vehicleId: 'CAM-' + (c.camera_id || i),
+                        routeNo: 'Traffic Cam',
+                        lat: c.lat,
+                        lng: c.lng,
+                        speed: 0,
+                        heading: null,
+                        status: 'monitoring',
+                        dist: null,
+                        stopId: 'cam_' + c.camera_id,
+                        update: now,
+                        confidence: 'Low'
+                    })).filter(b => b.lat && b.lng),
+                    live: true
+                };
+            } catch (e) {
+                return null;
+            }
         }
 
         function loadDemo() {
@@ -768,15 +736,8 @@
         }
 
         function refreshData() { fetchData(); }
-        function changeProvider(p) { currentProvider = p; fetchData(); }
         function changeRegion(r) {
             currentRegion = r;
-            const regionSelect = document.getElementById('regionSelect');
-            // Timbus and iHanoi only support Hanoi
-            if ((currentProvider === 'ihanoi' || currentProvider === 'timbus') && r !== 'hn') {
-                regionSelect.value = 'hn';
-                currentRegion = 'hn';
-            }
             fetchData();
         }
 
