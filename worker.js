@@ -1,6 +1,6 @@
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
@@ -13,15 +13,7 @@ export default {
       return new Response(null, { headers: CORS })
     }
 
-    // ============ Config endpoint: returns Google Maps API key ============
-    if (path === '/api/config') {
-      return new Response(JSON.stringify({ googleMapsApiKey: env.GOOGLE_MAPS_API_KEY || '' }), {
-        status: 200,
-        headers: { ...CORS, 'Content-Type': 'application/json' },
-      })
-    }
-
-    // ============ Serve frontend from GitHub Pages ============
+    // Serve frontend from GitHub Pages
     const htmlResp = await fetch('https://projecthorizon993.github.io/bus-tracker-rust/', {
       headers: { 'Accept': 'text/html' },
     })
