@@ -177,22 +177,21 @@ impl Provider for VinBusProvider {
         for (url, desc) in attempts {
             // Build encrypted payload for this attempt
             let encrypted_payload = self.build_encrypted_payload();
-            let url_with_params = format!("{}?ReqParams={}", url, urlencoding::encode(&encrypted_payload));
 
-            info!("[VinBus] Trying endpoint: {} ({})", url_with_params, desc);
-            match self.fetch_buses_once(&url_with_params) {
+            info!("[VinBus] Trying endpoint: {} ({})", url, desc);
+            match self.fetch_buses_once(url, &encrypted_payload) {
                 Ok(buses) if !buses.is_empty() => {
                     info!(
                         "[VinBus] Successfully fetched {} bus(es) from {}",
-                        buses.len(), url_with_params
+                        buses.len(), url
                     );
                     return Ok(buses);
                 }
                 Ok(_) => {
-                    info!("[VinBus] Endpoint {} returned empty bus list", url_with_params);
+                    info!("[VinBus] Endpoint {} returned empty bus list", url);
                 }
                 Err(e) => {
-                    warn!("[VinBus] Endpoint {} failed: {}", url_with_params, e);
+                    warn!("[VinBus] Endpoint {} failed: {}", url, e);
                     last_err = Some(e.to_string());
                 }
             }
@@ -206,8 +205,7 @@ impl Provider for VinBusProvider {
         Err(ProviderError::Http(msg))
     }
 
-    fn fetch_buses_once(&self, url: &str) -> Result<Vec<Bus>, ProviderError> {
-        // url already contains ?ReqParams=<encrypted_payload> from fetch_buses()
+    fn fetch_buses_once(&self, url: &str, encrypted_payload: &str) -> Result<Vec<Bus>, ProviderError> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
@@ -217,7 +215,7 @@ impl Provider for VinBusProvider {
             })?;
 
         let response = client
-            .get(url)
+            .post(url)
             .header("client-version", "android|690")
             .header("device-id", format!("web-{}", SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -227,6 +225,9 @@ impl Provider for VinBusProvider {
             .header("auth-key", VINBUS_AUTH_KEY)
             .header("Accept", "application/json")
             .header("User-Agent", "VinBus/1.0 (Android)")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Content-Length", format!("{}", encrypted_payload.len()))
+            .body(format!("ReqParams={}", urlencoding::encode(&encrypted_payload)))
             .send();
 
         let text = match response {
@@ -281,8 +282,6 @@ impl Provider for VinBusProvider {
     ///    remaining bytes: encrypted data XORed with bArr2 cyclically
     /// 5. Base64 encode
     fn build_encrypted_payload(&self) -> String {
-        use rand::Rng;
-
         // Build payload data: [random_int(4 bytes)] + [route_data_bytes]
         let mut payload_data = Vec::new();
         let rand_int: i32 = rand::thread_rng().gen();
