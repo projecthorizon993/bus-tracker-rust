@@ -45,6 +45,14 @@ export default {
       return new Response(null, { headers: CORS })
     }
 
+    // ============ Config endpoint: returns Google Maps API key ============
+    if (path === '/api/config') {
+      return new Response(JSON.stringify({ googleMapsApiKey }), {
+        status: 200,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+
     // ============ Timbus API proxy (Hanoi bus backend) ============
     if (path.startsWith('/api/timbus/')) {
       const action = path.replace('/api/timbus/', '')
@@ -149,19 +157,11 @@ export default {
       }
     }
 
-    // ============ Serve frontend from GitHub Pages (inject Google Maps API key) ============
+    // ============ Serve frontend from GitHub Pages (no injection) ============
     const htmlResp = await fetch('https://projecthorizon993.github.io/bus-tracker-rust/', {
       headers: { 'Accept': 'text/html' },
     })
-    let html = await htmlResp.text()
-
-    // Inject Google Maps API key if configured
-    if (googleMapsApiKey) {
-      html = html.replace(
-        'const GOOGLE_MAPS_API_KEY_PLACEHOLDER = "";',
-        'const GOOGLE_MAPS_API_KEY_PLACEHOLDER = "' + googleMapsApiKey + '";'
-      )
-    }
+    const html = await htmlResp.text()
 
     return new Response(html, {
       status: htmlResp.status,

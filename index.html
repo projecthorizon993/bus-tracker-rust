@@ -195,8 +195,22 @@
             }
         };
 
-        // Google Maps API key (injected by Cloudflare Worker at runtime)
-        const GOOGLE_MAPS_API_KEY_PLACEHOLDER = "";
+        // Google Maps API key (fetched from Cloudflare Worker at runtime)
+        let GOOGLE_MAPS_API_KEY = ""
+
+        async function loadGoogleMapsApiKey() {
+            try {
+                const resp = await fetch('https://bus-tracker-api.lequangglobal.workers.dev/api/config', {
+                    headers: { 'Accept': 'application/json' }
+                })
+                if (resp.ok) {
+                    const data = await resp.json()
+                    GOOGLE_MAPS_API_KEY = data.googleMapsApiKey || ''
+                }
+            } catch (e) {
+                console.warn('Failed to load Google Maps API key from Worker:', e)
+            }
+        }
 
         // ============ Demo Data ============
         const DEMO = {
@@ -255,8 +269,7 @@
                 addGoogleMapsLayer();
                 return;
             }
-            const apiKey = GOOGLE_MAPS_API_KEY_PLACEHOLDER;
-            if (!apiKey) {
+            if (!GOOGLE_MAPS_API_KEY) {
                 console.warn('Google Maps API key not configured. Falling back to OpenStreetMap.');
                 mapType = 'osm';
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -266,7 +279,7 @@
                 return;
             }
             const script = document.getElementById('google-maps-api');
-            script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=visualization&callback=initGoogleMaps';
+            script.src = 'https://maps.googleapis.com/maps/api/js?key=' + GOOGLE_MAPS_API_KEY + '&libraries=visualization&callback=initGoogleMaps';
             script.async = true;
             script.defer = true;
         }
@@ -282,7 +295,8 @@
                 attribution: '© Google Maps'
             }).addTo(map);
         }
-        initMap();
+        // Load Google Maps API key from Worker before initializing map
+        loadGoogleMapsApiKey().then(() => initMap());
 
         // ============ Helpers ============
         function haversine(lat1, lng1, lat2, lng2) {
