@@ -153,22 +153,22 @@
         // ============ Config ============
         const CONFIG = {
             vinbus: {
-                baseUrl: 'https://api.busmap.city/v2',
+                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/vinbus',
                 endpoints: {
-                    routes: '/route/public/list',
-                    estimate: 'https://api.busmap.vn/v2/public/busmap/estimate_bus_to_station'
+                    routes: '/v2/route/public/list',
+                    estimate: 'https://bus-tracker-api.lequangglobal.workers.dev/api/busmap-vn/v2/public/busmap/estimate_bus_to_station'
                 },
                 authKey: 'ViNbUs2@2lElectricDtPZG+ulbseO1WGN',
                 regions: ['hn', 'hcm']
             },
             gsm: {
-                baseUrl: 'https://api.gsm-api.net',
+                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/busmap-vn',
                 endpoints: { location: '/broadcasting/v1/public/location/' },
                 apiKey: 'VSve2734sdfaxTj1SEscrsRepxCzhsrgS4JHEqMJllJF71rjCFtM0T5F1at83bwmI1eSwspEc',
                 regions: ['hn', 'hcm']
             },
             ihanoi: {
-                baseUrl: 'https://cds.hanoi.gov.vn',
+                baseUrl: 'https://bus-tracker-api.lequangglobal.workers.dev/api/ihanoi',
                 endpoints: { cameras: '/api/1.0/public/video-wall-cameras-v2?page=1&refresh=0' },
                 regions: ['hn']
             }
@@ -424,9 +424,14 @@
         }
 
         async function fetchVinBus() {
-            // Try BusMap city route list API (simple headers only to avoid CORS preflight)
+            // Try BusMap city route list API via Cloudflare Worker (CORS handled by Worker)
             const routeUrl = `${CONFIG.vinbus.baseUrl}${CONFIG.vinbus.endpoints.routes}?regionCode=${currentRegion}`;
-            const routeResp = await fetchWithProxy(routeUrl);
+            const routeResp = await fetch(routeUrl, {
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                }
+            });
             if (!routeResp.ok) throw new Error('HTTP ' + routeResp.status);
             const routes = await routeResp.json();
 
@@ -449,7 +454,12 @@
             const sampleStations = ['hn_001', 'hn_002', 'hn_003', 'hn_004', 'hn_005'];
             sampleStations.forEach(sid => {
                 busPromises.push(
-                    fetchWithProxy(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`).then(r => r.json()).catch(() => [])
+                    fetch(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`, {
+                        headers: {
+                            'Accept': 'application/json',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                        }
+                    }).then(r => r.json()).catch(() => [])
                 );
             });
 
@@ -461,7 +471,7 @@
                 vehicleId: b.vehicleNumber || b.busId || b.id || 'VB-' + i,
                 routeNo: b.routeNo || 'N/A',
                 lat: b.lat || b.latitude || null,
-                lng: b.lng || b.longitude || b.lon || null,
+                lng: b.lng || b.longitude || null,
                 speed: b.speed || 0,
                 heading: b.heading || null,
                 status: b.status || 'running',
@@ -473,7 +483,7 @@
 
             // Use routes as stations for ETA
             stations = Array.from(stationMap.values());
-            setStatus(true, 'Live API (BusMap)', false);
+            setStatus(true, 'Live API (BusMap via Worker)', false);
         }
 
         async function fetchGsm() {
@@ -482,7 +492,12 @@
 
         async function fetchIHanoi() {
             const url = `${CONFIG.ihanoi.baseUrl}${CONFIG.ihanoi.endpoints.cameras}`;
-            const resp = await fetchWithProxy(url);
+            const resp = await fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                }
+            });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const data = await resp.json();
             const cameras = data.data || [];
