@@ -16,7 +16,7 @@
             width: 340px; max-height: 95vh;
             background: rgba(255,255,255,0.95);
             border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.15);
-            padding: 18px; z-index: 1000; overflow-y: auto;
+            padding: 18px; z-index: 500; overflow-y: auto;
         }
         .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
         .header h1 { font-size: 1.3rem; color: #1a1a1e; margin: 0; }
@@ -91,6 +91,7 @@
         <div class="header">
             <h1>🚌 Bus Tracker</h1>
             <button class="refresh-btn" onclick="refreshData()">↻ Refresh</button>
+            <button class="refresh-btn" onclick="centerMap()">⌖ Center</button>
         </div>
 
         <div class="status-badge" id="statusBadge">
@@ -347,12 +348,14 @@
 
         // ============ Station Markers ============
         function renderStations() {
-            // Clear existing station markers
-            Object.values(stationMarkers).forEach(m => map.removeLayer(m));
-            stationMarkers = {};
-
             stations.forEach(s => {
                 if (!s.lat || !s.lng) return;
+                const key = s.id;
+                if (stationMarkers[key]) {
+                    // Update existing marker position
+                    stationMarkers[key].setLatLng([s.lat, s.lng]);
+                    return;
+                }
                 const marker = L.circleMarker([s.lat, s.lng], {
                     radius: 8,
                     fillColor: '#0078d4',
@@ -361,8 +364,15 @@
                     opacity: 1,
                     fillOpacity: 0.9
                 }).addTo(map);
-                stationMarkers[s.id] = marker;
+                stationMarkers[key] = marker;
                 marker.bindPopup(`<b>${s.name}</b><br>${s.routeNo || 'Station'}<br>${s.address || ''}`);
+            });
+            // Remove markers for stations no longer in list
+            Object.keys(stationMarkers).forEach(key => {
+                if (!stations.find(s => s.id === key)) {
+                    map.removeLayer(stationMarkers[key]);
+                    delete stationMarkers[key];
+                }
             });
         }
 
@@ -460,6 +470,7 @@
             const btn = document.getElementById('computeBtn');
             setStatus(false, 'Loading...', false);
             document.getElementById('busList').innerHTML = '<div class="no-buses"><div class="spinner"></div>Loading bus data...</div>';
+            window.__routeDrawn = false;
 
             try {
                 if (currentProvider === 'vinbus') {
@@ -620,6 +631,33 @@
             }
             fetchData();
         }
+
+        function centerMap() {
+            if (buses.length > 0) {
+                const bounds = buses
+                    .filter(b => b.lat && b.lng)
+                    .map(b => [b.lat, b.lng]);
+                if (bounds.length > 0) {
+                    map.fitBounds(bounds, { padding: [60, 60] });
+                    return;
+                }
+            }
+            if (stations.length > 0) {
+                const bounds = stations
+                    .filter(s => s.lat && s.lng)
+                    .map(s => [s.lat, s.lng]);
+                if (bounds.length > 0) {
+                    map.fitBounds(bounds, { padding: [60, 60] });
+                    return;
+                }
+            }
+            map.setView([21.0285, 105.8542], 13);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            setTimeout(() => map.invalidateSize(), 100);
+        });
 
         // ============ Start ============
         fetchData();
