@@ -4,6 +4,7 @@ use crate::models::{
 use crate::models::Coord;
 use crate::models::keys::VINBUS_AUTH_KEY;
 use log::{debug, error, info, warn};
+use rand::Rng;
 use reqwest::blocking::Client;
 use serde_json;
 use std::collections::HashMap;
@@ -94,6 +95,20 @@ impl Provider for VinBusProvider {
 
         // Multiple candidate endpoints to try
         let attempts: Vec<(String, &'static str)> = vec![
+            (
+                format!(
+                    "http://www.timbus.vn:9149/SearchBuyt?RouteBuytOptionV3?regionCode={}",
+                    region_code
+                ),
+                "VinBus API RouteBuytOptionV3",
+            ),
+            (
+                format!(
+                    "http://www.timbus.vn:9149/SearchBuyt?VehicleState?regionCode={}",
+                    region_code
+                ),
+                "VinBus API VehicleState",
+            ),
             (
                 format!(
                     "https://api.busmap.vn/v2/public/busmap/vehicle_{}",
@@ -190,6 +205,11 @@ impl Provider for VinBusProvider {
     }
 
     fn fetch_buses_once(&self, url: &str) -> Result<Vec<Bus>, ProviderError> {
+        // Build encrypted payload for TimBus API
+        let payload = self.build_encrypted_payload();
+
+        let url_with_params = format!("{}?ReqParams={}", url, urlencoding::encode(&payload));
+
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
@@ -199,7 +219,7 @@ impl Provider for VinBusProvider {
             })?;
 
         let response = client
-            .get(url)
+            .get(&url_with_params)
             .header("client-version", "android|690")
             .header("device-id", format!("web-{}", SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -248,6 +268,50 @@ impl Provider for VinBusProvider {
 
         Ok(vec![])
     }
+
+    /// Build encrypted payload for TimBus API
+    /// Encryption scheme from decompiled app:
+    /// 1. Prepend random 4-byte int to data
+    /// 2. XOR entire buffer with random key1
+    /// 3. Output: [encrypted_data] + [key1] + [key1_len] + [key2] + [key2_len] + [checksum]
+    /// 4. Base64 encode
+    fn build_encrypted_payload(&self) -> String {
+        // Build payload: [random_int(4 bytes)] + [data_bytes]
+        let mut payload = Vec::new();
+        let rand_int: i32 = rand::thread_rng().gen();
+        payload.extend_from_slice(&rand_int.to_le_bytes());
+        // Add route data (route_no = "35B" for testing)
+        let route_bytes = b"35B";
+        payload.extend_from_slice(&route_bytes);
+
+        // Generate random keys
+        let key1_len = rand::thread_rng().gen_range(32..65);
+        let key1: Vec<u8> = (0..key1_len).map(|_| rand::thread_rng().gen_range(48..127) as u8).collect();
+        let key2_len = rand::thread_rng().gen_range(32..65);
+        let key2: Vec<u8> = (0..key2_len).map(|_| rand::thread_rng().gen_range(48..127) as u8).collect();
+
+        // XOR entire buffer with key1
+        let mut encrypted = Vec::new();
+        for (i, byte) in payload.iter().enumerate() {
+            encrypted.push(byte ^ key1[i % key1.len()]);
+        }
+
+        // Build output: [encrypted_data] + [key1] + [key1_len] + [key2] + [key2_len] + [checksum]
+        let mut output = Vec::new();
+        output.extend_from_slice(&encrypted);
+        output.extend_from_slice(&key1);
+        output.push(key1.len() as u8);
+        output.extend_from_slice(&key2);
+        output.push(key2.len() as u8);
+
+        // Checksum
+        let checksum: u8 = output.iter().sum();
+        output.push(checksum);
+
+        // Base64 encode
+        base64::encode(&output)
+    }
+}
 
     fn fetch_stations(&self, region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
         let url = "https://api.busmap.vn/v1/stations".to_string();
