@@ -113,6 +113,12 @@
             <option value="hcm">Ho Chi Minh City (hcm)</option>
         </select>
 
+        <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Map style:</label>
+        <select class="region-select" id="mapTypeSelect" onchange="changeMapType(this.value)">
+            <option value="osm">OpenStreetMap</option>
+            <option value="google">Google Maps</option>
+        </select>
+
         <div class="card">
             <h3>📍 Station-to-Station ETA</h3>
             <select class="station-select" id="originSelect"></select>
@@ -151,6 +157,8 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/Ionut-Ionita/Leaflet.GoogleMutant@master/Leaflet.GoogleMutant.js"></script>
+    <script id="google-maps-api" src=""></script>
     <script>
         // ============ Config ============
         const CONFIG = {
@@ -187,6 +195,9 @@
             }
         };
 
+        // Google Maps API key (injected by Cloudflare Worker at runtime)
+        const GOOGLE_MAPS_API_KEY_PLACEHOLDER = "";
+
         // ============ Demo Data ============
         const DEMO = {
             hn: {
@@ -220,6 +231,7 @@
         let map, busMarkers = {}, stationMarkers = {}, routeLine = null;
         let currentProvider = 'vinbus';
         let currentRegion = 'hn';
+        let mapType = 'osm'; // 'osm' or 'google'
         let useDemo = false;
         let stations = [];
         let buses = [];
@@ -228,10 +240,46 @@
         function initMap() {
             map = L.map('map', { center: [21.0285, 105.8542], zoom: 13 });
 
-            // OpenStreetMap tile layer with proper attribution
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
-                maxZoom: 19
+            if (mapType === 'google') {
+                loadGoogleMaps();
+            } else {
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+            }
+        }
+
+        function loadGoogleMaps() {
+            if (window.google && window.google.maps) {
+                addGoogleMapsLayer();
+                return;
+            }
+            const apiKey = GOOGLE_MAPS_API_KEY_PLACEHOLDER;
+            if (!apiKey) {
+                console.warn('Google Maps API key not configured. Falling back to OpenStreetMap.');
+                mapType = 'osm';
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+                return;
+            }
+            const script = document.getElementById('google-maps-api');
+            script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=visualization&callback=initGoogleMaps';
+            script.async = true;
+            script.defer = true;
+        }
+
+        window.initGoogleMaps = function () {
+            addGoogleMapsLayer();
+        };
+
+        function addGoogleMapsLayer() {
+            const googleMapType = window.google.maps.MapTypeId.ROADMAP;
+            new L.Google(googleMapType, {
+                maxZoom: 20,
+                attribution: '© Google Maps'
             }).addTo(map);
         }
         initMap();
@@ -716,6 +764,34 @@
                 currentRegion = 'hn';
             }
             fetchData();
+        }
+
+        function changeMapType(type) {
+            mapType = type;
+            // Clear existing layers
+            map.eachLayer(layer => {
+                if (layer instanceof L.TileLayer || layer instanceof L.GridLayer) {
+                    map.removeLayer(layer);
+                }
+            });
+            // Remove route line
+            if (routeLine) {
+                map.removeLayer(routeLine);
+                routeLine = null;
+            }
+            // Remove station markers
+            Object.values(stationMarkers).forEach(m => map.removeLayer(m));
+            stationMarkers = {};
+
+            if (mapType === 'google') {
+                loadGoogleMaps();
+            } else {
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+            }
+            renderStations();
         }
 
         function centerMap() {
