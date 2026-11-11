@@ -230,17 +230,29 @@
             return R * 2 * Math.asin(Math.sqrt(a));
         }
 
+        // Fetch helper with simple headers only (avoids CORS preflight on strict APIs)
+        async function fetchSimple(url) {
+            const resp = await fetch(url, {
+                headers: {
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                }
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return resp;
+        }
+
         // Fetch with CORS proxy fallback for APIs that block cross-origin requests
-        async function fetchWithProxy(url, headers = {}) {
+        async function fetchWithProxy(url) {
+            // Try direct first
             try {
-                const resp = await fetch(url, { headers });
-                if (resp.ok) return resp;
+                const resp = await fetchSimple(url);
+                return resp;
             } catch (e) {
-                // Direct fetch failed (possibly CORS), try proxy
+                // Direct failed (CORS or network), try public CORS proxy
             }
-            // Try CORS proxy
-            const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-            const proxyResp = await fetch(proxyUrl, { headers });
+            const proxyUrl = 'https://api.cors.lol/?url=' + encodeURIComponent(url);
+            const proxyResp = await fetchSimple(proxyUrl);
             if (!proxyResp.ok) throw new Error('Proxy HTTP ' + proxyResp.status);
             return proxyResp;
         }
@@ -414,11 +426,7 @@
         async function fetchVinBus() {
             // Try BusMap city route list API (simple headers only to avoid CORS preflight)
             const routeUrl = `${CONFIG.vinbus.baseUrl}${CONFIG.vinbus.endpoints.routes}?regionCode=${currentRegion}`;
-            const routeResp = await fetchWithProxy(routeUrl, {
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
+            const routeResp = await fetchWithProxy(routeUrl);
             if (!routeResp.ok) throw new Error('HTTP ' + routeResp.status);
             const routes = await routeResp.json();
 
@@ -441,12 +449,7 @@
             const sampleStations = ['hn_001', 'hn_002', 'hn_003', 'hn_004', 'hn_005'];
             sampleStations.forEach(sid => {
                 busPromises.push(
-                    fetchWithProxy(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`, {
-                        headers: {
-                            'Accept': 'application/json',
-                            'User-Agent': 'VinBus/1.0 (Android)'
-                        }
-                    }).then(r => r.json()).catch(() => [])
+                    fetchWithProxy(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`).then(r => r.json()).catch(() => [])
                 );
             });
 
@@ -479,12 +482,7 @@
 
         async function fetchIHanoi() {
             const url = `${CONFIG.ihanoi.baseUrl}${CONFIG.ihanoi.endpoints.cameras}`;
-            const resp = await fetchWithProxy(url, {
-                headers: {
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                }
-            });
+            const resp = await fetchWithProxy(url);
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const data = await resp.json();
             const cameras = data.data || [];
