@@ -151,29 +151,11 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         // ============ Config ============
-        // Free, no API key needed: OpenStreetMap Overpass API for bus routes & stops
-        // Vietmap.vn for better Vietnamese map tiles (requires free API key, 60K free transactions/month)
+        // HCMC EBMS API - free, no API key needed - LIVE bus GPS data!
+        // Source: HCMC official bus system (ebms.vn)
         const CONFIG = {
-            overpass: 'https://overpass-api.de/api/interpreter',
-            vietmapApiKeyEndpoint: 'https://bus-tracker-api.lequangglobal.workers.dev/api/config'
+            ebmsBase: 'https://apicms.ebms.vn',
         };
-
-        // Vietmap API key (fetched from Cloudflare Worker at runtime)
-        let VIETMAP_API_KEY = ""
-
-        async function loadVietmapApiKey() {
-            try {
-                const resp = await fetch(CONFIG.vietmapApiKeyEndpoint, {
-                    headers: { 'Accept': 'application/json' }
-                })
-                if (resp.ok) {
-                    const data = await resp.json()
-                    VIETMAP_API_KEY = data.vietmapApiKey || ''
-                }
-            } catch (e) {
-                console.warn('Failed to load Vietmap API key from Worker:', e)
-            }
-        }
 
         // ============ Demo Data ============
         const DEMO = {
@@ -214,36 +196,15 @@
 
         // ============ Map ============
         function initMap() {
-            map = L.map('map', { center: [21.0285, 105.8542], zoom: 13 });
+            map = L.map('map', { center: [10.78, 106.68], zoom: 13 });
 
-            if (mapType === 'vietmap') {
-                loadVietmapLayer();
-            } else {
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
-                    maxZoom: 19
-                }).addTo(map);
-            }
-        }
-
-        async function loadVietmapLayer() {
-            if (!VIETMAP_API_KEY) {
-                console.warn('Vietmap API key not configured. Falling back to OpenStreetMap.');
-                mapType = 'osm';
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
-                    maxZoom: 19
-                }).addTo(map);
-                return;
-            }
-            // Vietmap tile layer
-            L.tileLayer(`https://tiles.vietmap.vn/v1/raster/tiles/{z}/{x}/{y}.png?apikey=${VIETMAP_API_KEY}`, {
-                attribution: '© <a href="https://maps.vietmap.vn" target="_blank" rel="noopener">VIETMAP</a> | Bản đồ: © VIETMAP',
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
                 maxZoom: 19
             }).addTo(map);
         }
-        // Load Vietmap API key from Worker before initializing map
-        loadVietmapApiKey().then(() => initMap());
+
+        initMap();
 
         // ============ Helpers ============
         function haversine(lat1, lng1, lat2, lng2) {
@@ -521,32 +482,35 @@
                 `Distance: ${distKm.toFixed(1)} km | Speed: ${speed} km/h | ${fresh ? 'GPS fresh' : 'GPS stale'}${congLabel}`;
         }
 
-        // ============ Data Fetching (OpenStreetMap Overpass API - free, no key) ============
+        // ============ Data Fetching (EBMS API - HCMC live bus data, free, no key) ============
         async function fetchData() {
             const btn = document.getElementById('computeBtn');
             setStatus(false, 'Loading...', false);
-            document.getElementById('busList').innerHTML = '<div class="no-buses"><div class="spinner"></div>Loading from OpenStreetMap...</div>';
+            document.getElementById('busList').innerHTML = '<div class="no-buses"><div class="spinner"></div>Loading from HCMC EBMS API...</div>';
             window.__routeDrawn = false;
 
             let stations = [];
             let buses = [];
             let live = false;
 
-            try {
-                const result = await fetchOverpassData(currentRegion);
-                stations = result.stations || [];
-                buses = result.buses || [];
-                live = result.live || false;
-            } catch (e) {
-                console.error('Overpass fetch error:', e);
+            // HCMC only - EBMS API works for HCMC
+            if (currentRegion === 'hcm') {
+                try {
+                    const result = await fetchEBMSData();
+                    stations = result.stations || [];
+                    buses = result.buses || [];
+                    live = result.live || false;
+                } catch (e) {
+                    console.error('EBMS fetch error:', e);
+                }
             }
 
-            // Fallback to demo if no live data
+            // Fallback to demo if no live data or wrong region
             if (!live || buses.length === 0) {
                 loadDemo();
                 setStatus(false, 'Demo mode', true);
             } else {
-                setStatus(true, 'Live API (OpenStreetMap)', false);
+                setStatus(true, 'Live API (HCMC EBMS)', false);
             }
 
             // Safety: ensure stations and buses are arrays
@@ -560,91 +524,77 @@
             if (btn.disabled === false) computeETA();
         }
 
-        // ---- OpenStreetMap Overpass API (free, no key) ----
-        async function fetchOverpassData(region) {
-            // Hanoi bounding box approx
-            const bbox = region === 'hcm' ? '10.7,106.6,10.9,106.8' : '20.9,105.7,21.1,105.9';
-
-            // Query for bus routes and bus stops
-            const query = `
-                [out:json][timeout:25];
-                (
-                  node["highway"="bus_stop"]({{bbox}});
-                  way["route"="bus"]({{bbox}});
-                  relation["route"="bus"]({{bbox}});
-                );
-                out center;
-                out body;
-              `;
+        // ---- EBMS API (HCMC - live bus GPS, free, no key) ----
+        async function fetchEBMSData() {
+            const bounds = CONFIG.ebmsBase + '/businfo/getstopsinbounds/' + CONFIG.hcmcBounds;
 
             try {
-                const resp = await fetch(CONFIG.overpass, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Accept': 'application/json'
-                    },
-                    body: 'data=' + encodeURIComponent(query.replace(/{{bbox}}/g, bbox))
+                const resp = await fetch(bounds, {
+                    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
                 });
-
                 if (!resp.ok) return { stations: [], buses: [], live: false };
 
-                const data = await resp.json();
-                const elements = data.elements || [];
+                const stops = await resp.json();
 
-                const stops = [];
-                const routes = new Map();
-
-                elements.forEach(el => {
-                    if (el.type === 'node' && el.tags && el.tags.highway === 'bus_stop') {
-                        stops.push({
-                            id: 'osm_stop_' + el.id,
-                            name: el.tags.name || 'Bus Stop',
-                            lat: el.lat || (el.center && el.center.lat),
-                            lng: el.lon || (el.center && el.center.lon),
-                            routeNo: el.tags.ref || 'N/A',
-                            operator: el.tags.operator || 'OSM'
-                        });
-                    }
-                    if ((el.type === 'way' || el.type === 'relation') && el.tags && el.tags.route === 'bus') {
-                        routes.set(el.id, {
-                            id: 'osm_route_' + el.id,
-                            name: el.tags.name || 'Route ' + el.id,
-                            routeNo: el.tags.ref || 'N/A',
-                            operator: el.tags.operator || 'OSM'
-                        });
-                    }
+                // Build station list from EBMS data
+                const stationMap = new Map();
+                stops.forEach(s => {
+                    stationMap.set('ebms_' + s.StopId, {
+                        id: 'ebms_' + s.StopId,
+                        name: s.Name || 'Bus Stop',
+                        lat: s.Lat,
+                        lng: s.Lng,
+                        routeNo: s.Routes || 'N/A',
+                        stopId: s.StopId.toString(),
+                        address: s.AddressNo || '',
+                        region: s.Zone || ''
+                    });
                 });
 
-                // Create sample buses along routes (OSM doesn't have live GPS)
-                const now = Date.now();
-                const buses = [];
-                routes.forEach((route, idx) => {
-                    // Place bus at first stop or center of Hanoi/HCMC
-                    const center = region === 'hcm' ? { lat: 10.78, lng: 106.68 } : { lat: 21.03, lng: 105.85 };
-                    buses.push({
-                        vehicleId: route.routeNo,
-                        routeNo: route.routeNo,
-                        lat: center.lat + (Math.random() - 0.5) * 0.02,
-                        lng: center.lng + (Math.random() - 0.5) * 0.02,
-                        speed: 20 + Math.random() * 20,
-                        heading: Math.random() * 360,
-                        status: 'running',
-                        dist: 1000,
-                        stopId: stops.length > 0 ? stops[0].id : null,
-                        update: now,
-                        confidence: 'Low',
-                        source: 'OSM'
+                // Fetch live bus positions for each stop
+                const busPromises = [];
+                const stopIds = Array.from(stationMap.keys()).slice(0, 20); // limit to 20 stops
+                stopIds.forEach(stopKey => {
+                    const stop = stationMap.get(stopKey);
+                    busPromises.push(
+                        fetch(`${CONFIG.ebmsBase}/prediction/predictbystopid/${stop.stopId}`, {
+                            headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' }
+                        }).then(r => r.json()).catch(() => null)
+                    );
+                });
+
+                const busResults = await Promise.all(busPromises);
+
+                const allBuses = [];
+                busResults.forEach((result, idx) => {
+                    if (!result || !result.arrs) return;
+                    const stopKey = stopIds[idx];
+                    const stop = stationMap.get(stopKey);
+                    result.arrs.forEach(a => {
+                        allBuses.push({
+                            vehicleId: a.v || 'Unknown',
+                            routeNo: a.rNo || stop.routeNo || 'N/A',
+                            routeName: a.rN || stop.name || 'Unknown',
+                            lat: stop.lat,
+                            lng: stop.lng,
+                            speed: a.s || 0,
+                            status: 'running',
+                            dist: a.d || 0,
+                            stopId: stopKey,
+                            update: new Date(a.dts).getTime() / 1000 || 0,
+                            confidence: 'Medium',
+                            source: 'EBMS'
+                        });
                     });
                 });
 
                 return {
-                    stations: stops,
-                    buses: buses,
-                    live: stops.length > 0 || routes.size > 0
+                    stations: Array.from(stationMap.values()),
+                    buses: allBuses.filter(b => b.lat && b.lng),
+                    live: allBuses.length > 0
                 };
             } catch (e) {
-                console.error('Overpass error:', e);
+                console.error('EBMS error:', e);
                 return { stations: [], buses: [], live: false };
             }
         }
