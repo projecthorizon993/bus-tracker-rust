@@ -105,6 +105,14 @@
             <option value="hcm">Ho Chi Minh City (hcm)</option>
         </select>
 
+        <label style="font-size:0.8rem; font-weight:700; color:#333; margin-bottom:4px; display:block;">Map style:</label>
+        <select class="region-select" id="mapTypeSelect" onchange="changeMapType(this.value)">
+            <option value="osm">OpenStreetMap</option>
+            <option value="vietmap">Vietmap (Vietnam)</option>
+            <option value="bing">Bing Maps</option>
+            <option value="azure">Azure Maps</option>
+        </select>
+
         <div class="card">
             <h3>📍 Station-to-Station ETA</h3>
             <select class="station-select" id="originSelect"></select>
@@ -146,11 +154,34 @@
     <script>
         // ============ Config ============
         // HCMC EBMS API - free, no API key needed - LIVE bus GPS data!
-        // Source: HCMC official bus system (ebms.vn)
+        // OpenStreetMap Overpass API - free, no API key needed - bus routes & stops
+        // Vietmap.vn / Bing Maps - better Vietnam map tiles (requires free API key, 60K free transactions/month)
         const CONFIG = {
             ebmsBase: 'https://apicms.ebms.vn',
             hcmcBounds: '106.60/10.70/106.80/10.90',
+            apiKeyEndpoint: 'https://bus-tracker-api.lequangglobal.workers.dev/api/config'
         };
+
+        // API keys (fetched from Cloudflare Worker at runtime - never hardcoded)
+        let VIETMAP_API_KEY = ""
+        let BING_MAPS_API_KEY = ""
+        let AZURE_MAPS_KEY = ""
+
+        async function loadApiKeys() {
+            try {
+                const resp = await fetch(CONFIG.apiKeyEndpoint, {
+                    headers: { 'Accept': 'application/json' }
+                })
+                if (resp.ok) {
+                    const data = await resp.json()
+                    VIETMAP_API_KEY = data.vietmapApiKey || ''
+                    BING_MAPS_API_KEY = data.bingMapsApiKey || ''
+                    AZURE_MAPS_KEY = data.azureMapsSubscriptionKey || ''
+                }
+            } catch (e) {
+                console.warn('Failed to load API keys from Worker:', e)
+            }
+        }
 
         // ============ Demo Data ============
         const DEMO = {
@@ -184,6 +215,7 @@
         // ============ State ============
         let map, busMarkers = {}, stationMarkers = {}, routeLine = null;
         let currentRegion = 'hn';
+        let mapType = 'osm'; // 'osm', 'vietmap', 'bing', or 'azure'
         let useDemo = false;
         let stations = [];
         let buses = [];
@@ -192,13 +224,70 @@
         function initMap() {
             map = L.map('map', { center: [10.78, 106.68], zoom: 13 });
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+            if (mapType === 'vietmap') {
+                loadVietmapLayer();
+            } else if (mapType === 'bing') {
+                loadBingMapsLayer();
+            } else if (mapType === 'azure') {
+                loadAzureMapsLayer();
+            } else {
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+            }
+        }
+
+        async function loadVietmapLayer() {
+            if (!VIETMAP_API_KEY) {
+                console.warn('Vietmap API key not configured. Falling back to OpenStreetMap.');
+                mapType = 'osm';
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+                return;
+            }
+            L.tileLayer(`https://tiles.vietmap.vn/v1/raster/tiles/{z}/{x}/{y}.png?apikey=${VIETMAP_API_KEY}`, {
+                attribution: '© <a href="https://maps.vietmap.vn" target="_blank" rel="noopener">VIETMAP</a> | Bản đồ: © VIETMAP',
                 maxZoom: 19
             }).addTo(map);
         }
 
-        initMap();
+        async function loadBingMapsLayer() {
+            if (!BING_MAPS_API_KEY) {
+                console.warn('Bing Maps API key not configured. Falling back to OpenStreetMap.');
+                mapType = 'osm';
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+                return;
+            }
+            L.tileLayer(`https://dev.virtualearth.net/REST/V1/Imagery/Map/Road/{z}/{x}/{y}?key=${BING_MAPS_API_KEY}&o=1`, {
+                attribution: '© <a href="https://www.bing.com/maps" target="_blank" rel="noopener">Bing Maps</a> | Bản đồ: © Bing Maps',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        async function loadAzureMapsLayer() {
+            if (!AZURE_MAPS_KEY) {
+                console.warn('Azure Maps subscription key not configured. Falling back to OpenStreetMap.');
+                mapType = 'osm';
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+                return;
+            }
+            // Azure Maps tile layer (subscription key)
+            L.tileLayer(`https://atlas.microsoft.com/map/tile?layer=road&api-version=1.0&style=main&tileSize=256&language=en-US&x={x}&y={y}&z={z}&subscription-key=${AZURE_MAPS_KEY}`, {
+                attribution: '© <a href="https://azure.microsoft.com/en-us/products/azure-maps/" target="_blank" rel="noopener">Azure Maps</a> | Bản đồ: © Azure Maps',
+                maxZoom: 19
+            }).addTo(map);
+        }
+        // Load API keys from Worker before initializing map
+        loadApiKeys().then(() => initMap());
 
         // ============ Helpers ============
         function haversine(lat1, lng1, lat2, lng2) {
@@ -581,6 +670,28 @@
         function changeRegion(r) {
             currentRegion = r;
             fetchData();
+        }
+
+        function changeMapType(type) {
+            mapType = type;
+            // Clear existing tile layers
+            map.eachLayer(layer => {
+                if (layer instanceof L.TileLayer) {
+                    map.removeLayer(layer);
+                }
+            });
+            if (mapType === 'vietmap') {
+                loadVietmapLayer();
+            } else if (mapType === 'bing') {
+                loadBingMapsLayer();
+            } else if (mapType === 'azure') {
+                loadAzureMapsLayer();
+            } else {
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors | Bản đồ: © OpenStreetMap',
+                    maxZoom: 19
+                }).addTo(map);
+            }
         }
 
         function centerMap() {

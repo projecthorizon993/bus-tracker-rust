@@ -13,9 +13,13 @@ export default {
       return new Response(null, { headers: CORS })
     }
 
-    // ============ Config endpoint: returns Vietmap API key ============
+    // ============ Config endpoint: returns API keys ============
     if (path === '/api/config') {
-      return new Response(JSON.stringify({ vietmapApiKey: env.VIETMAP_API_KEY || '' }), {
+      return new Response(JSON.stringify({
+        vietmapApiKey: env.VIETMAP_API_KEY || '',
+        bingMapsApiKey: env.BING_MAPS_API_KEY || '',
+        azureMapsSubscriptionKey: env.AZURE_MAPS_SUBSCRIPTION_KEY || ''
+      }), {
         status: 200,
         headers: { ...CORS, 'Content-Type': 'application/json' },
       })
