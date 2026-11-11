@@ -1,6 +1,8 @@
-use crate::models::keys::VINBUS_AUTH_KEY;
+use crate::models::{
+    Bus, CongestionInfo, ProviderConfig, PROVIDERS,
+};
 use crate::models::Coord;
-use crate::models::{Bus, CongestionInfo, ProviderConfig, PROVIDERS};
+use crate::models::keys::VINBUS_AUTH_KEY;
 use log::{debug, error, info, warn};
 use reqwest::blocking::Client;
 use serde_json;
@@ -14,8 +16,6 @@ pub enum ProviderError {
     Http(String),
     #[error("Parse error: {0}")]
     Parse(String),
-    #[error("ZIP error: {0}")]
-    Zip(String),
     #[error("Not implemented: {0}")]
     NotImplemented(String),
 }
@@ -87,107 +87,109 @@ impl Provider for VinBusProvider {
     }
 
     fn fetch_buses(&self, region: &str) -> Result<Vec<Bus>, ProviderError> {
-        let time = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        // Try multiple VinBus API endpoints - the API endpoint changes periodically
+        // and may return 404 if the path changed. We try multiple endpoints until
+        // one returns data successfully.
+        let region_code = region.to_lowercase();
 
-        // New VinBus API endpoints from decompiled BusMap app (com.t7.busmaphn)
-        // Vehicle data endpoint returns live bus positions
-        let url = format!("https://api.busmap.vn/v2/public/busmap/vehicle_{}", region);
-
-        info!("[VinBus] Fetching buses for region={} url={}", region, url);
-
-        // Try up to 3 times on transient failures
-        let mut last_err: Option<String> = None;
-        for attempt in 0..3 {
-            let result = self.fetch_buses_once(&url, time);
-            match result {
-                Ok(buses) => {
-                    if !buses.is_empty() {
-                        info!("[VinBus] Parsed {} bus(es)", buses.len());
-                        return Ok(buses);
-                    }
-                    info!("[VinBus] Parsed 0 buses, retrying...");
-                }
-                Err(e) => {
-                    last_err = Some(e.to_string());
-                    warn!("[VinBus] Attempt {} failed: {}", attempt + 1, e);
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_secs(2));
-        }
-        Err(last_err
-            .map(|e| ProviderError::Http(format!("VinBus failed after 3 retries: {e}")))
-            .unwrap_or_else(|| ProviderError::Http("VinBus failed after 3 retries".into())))
-    }
-
-    fn fetch_stations(&self, region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
-        let url = "https://api.busmap.vn/v1/stations".to_string();
-        info!(
-            "[VinBus] Fetching stations for region={} url={}",
-            region, url
-        );
-
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| {
-                error!("[VinBus] Failed to build HTTP client: {}", e);
-                ProviderError::Http(e.to_string())
-            })?;
-
-        let text = client
-            .get(url)
-            .header("auth-key", VINBUS_AUTH_KEY)
-            .header("client-version", "android|690")
-            .header(
-                "device-id",
+        // Multiple candidate endpoints to try
+        let attempts: Vec<(String, &'static str)> = vec![
+            (
                 format!(
-                    "web-{}",
+                    "https://api.busmap.vn/v2/public/busmap/vehicle_{}",
+                    region_code
+                ),
+                "VinBus API v2 vehicle endpoint",
+            ),
+            (
+                format!(
+                    "https://api.busmap.vn/v1/client/public/bus_data/compress_data_by_time?regionCode={}&time={}",
+                    region_code,
                     SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs()
                 ),
-            )
-            .header("language", "en")
-            .header("Accept", "application/json")
-            .header("User-Agent", "VinBus/1.0 (Android)")
-            .send()
-            .map_err(|e| {
-                error!("[VinBus] Station fetch failed: {}", e);
-                ProviderError::Http(e.to_string())
-            })?
-            .text()
-            .map_err(|e| {
-                error!("[VinBus] Station fetch read failed: {}", e);
-                ProviderError::Http(e.to_string())
-            })?;
+                "VinBus API v1 compressed data",
+            ),
+            (
+                format!(
+                    "https://api.busmap.vn/v2/client/public/bus_data/compress_data_by_time?regionCode={}&time={}",
+                    region_code,
+                    SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
+                "VinBus API v2 compressed data",
+            ),
+            (
+                format!(
+                    "https://api.busmap.vn/v1/public/bus_data/compress_data_by_time?regionCode={}&time={}",
+                    region_code,
+                    SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
+                "VinBus API v1 public compress",
+            ),
+            (
+                format!(
+                    "https://api.busmap.vn/v2/public/bus_data/compress_data_by_time?regionCode={}&time={}",
+                    region_code,
+                    SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
+                "VinBus API v2 public compress",
+            ),
+            (
+                format!(
+                    "https://vbcore-api.vinbus.vn/v2/client/public/bus_data/compress_data_by_time?regionCode={}&time={}",
+                    region_code,
+                    SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
+                "VinBus API v2 base domain",
+            ),
+        ];
 
-        debug!("[VinBus] Stations response length={} bytes", text.len());
+        info!("[VinBus] Fetching buses for region={}", region);
 
-        let stations: Vec<crate::models::Station> = serde_json::from_str(&text).map_err(|e| {
-            error!("[VinBus] Station parse failed: {}", e);
-            ProviderError::Parse(e.to_string())
-        })?;
+        let mut last_err: Option<String> = None;
+        for (url, desc) in attempts {
+            info!("[VinBus] Trying endpoint: {} ({})", url, desc);
+            match self.fetch_buses_once(&url) {
+                Ok(buses) if !buses.is_empty() => {
+                    info!(
+                        "[VinBus] Successfully fetched {} bus(es) from {}",
+                        buses.len(), url
+                    );
+                    return Ok(buses);
+                }
+                Ok(_) => {
+                    info!("[VinBus] Endpoint {} returned empty bus list", url);
+                }
+                Err(e) => {
+                    warn!("[VinBus] Endpoint {} failed: {}", url, e);
+                    last_err = Some(e.to_string());
+                }
+            }
+        }
 
-        info!("[VinBus] Parsed {} stations", stations.len());
-        Ok(stations)
+        let msg = format!(
+            "VinBus API unavailable - all endpoints failed for region={}. \
+             The VinBus API endpoint may have changed. Please check the API key and URL.",
+            region
+        );
+        Err(ProviderError::Http(msg))
     }
 
-    fn fetch_route(&self, _route_id: &str) -> Result<Option<crate::models::Route>, ProviderError> {
-        Ok(None)
-    }
-
-    fn fetch_congestion(&self, _region: &str) -> Result<Option<CongestionInfo>, ProviderError> {
-        Ok(None)
-    }
-}
-
-/// VinBus-specific inherent methods (not part of the Provider trait)
-impl VinBusProvider {
-    fn fetch_buses_once(&self, url: &str, time: u64) -> Result<Vec<Bus>, ProviderError> {
+    fn fetch_buses_once(&self, url: &str) -> Result<Vec<Bus>, ProviderError> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
@@ -199,7 +201,10 @@ impl VinBusProvider {
         let response = client
             .get(url)
             .header("client-version", "android|690")
-            .header("device-id", format!("web-{}", time))
+            .header("device-id", format!("web-{}", SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()))
             .header("language", "en")
             .header("auth-key", VINBUS_AUTH_KEY)
             .header("Accept", "application/json")
@@ -243,6 +248,59 @@ impl VinBusProvider {
 
         Ok(vec![])
     }
+
+    fn fetch_stations(&self, region: &str) -> Result<Vec<crate::models::Station>, ProviderError> {
+        let url = "https://api.busmap.vn/v1/stations".to_string();
+        info!("[VinBus] Fetching stations for region={} url={}", region, url);
+
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| {
+                error!("[VinBus] Failed to build HTTP client: {}", e);
+                ProviderError::Http(e.to_string())
+            })?;
+
+        let text = client
+            .get(url)
+            .header("auth-key", VINBUS_AUTH_KEY)
+            .header("client-version", "android|690")
+            .header("device-id", format!("web-{}", SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()))
+            .header("language", "en")
+            .header("Accept", "application/json")
+            .header("User-Agent", "VinBus/1.0 (Android)")
+            .send()
+            .map_err(|e| {
+                error!("[VinBus] Station fetch failed: {}", e);
+                ProviderError::Http(e.to_string())
+            })?
+            .text()
+            .map_err(|e| {
+                error!("[VinBus] Station fetch read failed: {}", e);
+                ProviderError::Http(e.to_string())
+            })?;
+
+        debug!("[VinBus] Stations response length={} bytes", text.len());
+
+        let stations: Vec<crate::models::Station> = serde_json::from_str(&text).map_err(|e| {
+            error!("[VinBus] Station parse failed: {}", e);
+            ProviderError::Parse(e.to_string())
+        })?;
+
+        info!("[VinBus] Parsed {} stations", stations.len());
+        Ok(stations)
+    }
+
+    fn fetch_route(&self, _route_id: &str) -> Result<Option<crate::models::Route>, ProviderError> {
+        Ok(None)
+    }
+
+    fn fetch_congestion(&self, _region: &str) -> Result<Option<CongestionInfo>, ProviderError> {
+        Ok(None)
+    }
 }
 
 /// ---------- Demo data provider (fallback when APIs fail) ----------
@@ -255,50 +313,35 @@ impl DemoProvider {
             crate::models::Station {
                 id: "hn_001".to_string(),
                 name: "Bến Xe Yên Nghĩa".to_string(),
-                coord: Coord {
-                    lat: 20.9360,
-                    lng: 105.7520,
-                },
+                coord: Coord { lat: 20.9360, lng: 105.7520 },
                 region: "hn".to_string(),
                 provider: "vinbus".to_string(),
             },
             crate::models::Station {
                 id: "hn_002".to_string(),
                 name: "Bến Xe Mỹ Đình".to_string(),
-                coord: Coord {
-                    lat: 21.0570,
-                    lng: 105.7760,
-                },
+                coord: Coord { lat: 21.0570, lng: 105.7760 },
                 region: "hn".to_string(),
                 provider: "vinbus".to_string(),
             },
             crate::models::Station {
                 id: "hn_003".to_string(),
                 name: "Bến Xe Gia Lâm".to_string(),
-                coord: Coord {
-                    lat: 21.0450,
-                    lng: 105.8370,
-                },
+                coord: Coord { lat: 21.0450, lng: 105.8370 },
                 region: "hn".to_string(),
                 provider: "vinbus".to_string(),
             },
             crate::models::Station {
                 id: "hn_004".to_string(),
                 name: "Bến Xe Bắc Long Biên".to_string(),
-                coord: Coord {
-                    lat: 21.0380,
-                    lng: 105.8570,
-                },
+                coord: Coord { lat: 21.0380, lng: 105.8570 },
                 region: "hn".to_string(),
                 provider: "vinbus".to_string(),
             },
             crate::models::Station {
                 id: "hn_005".to_string(),
                 name: "Bến Xe Bắc Sơn".to_string(),
-                coord: Coord {
-                    lat: 21.0200,
-                    lng: 105.8350,
-                },
+                coord: Coord { lat: 21.0200, lng: 105.8350 },
                 region: "hn".to_string(),
                 provider: "vinbus".to_string(),
             },
@@ -311,30 +354,21 @@ impl DemoProvider {
             crate::models::Station {
                 id: "hcm_001".to_string(),
                 name: "Bến Xe Miền Tây".to_string(),
-                coord: Coord {
-                    lat: 10.7560,
-                    lng: 106.6290,
-                },
+                coord: Coord { lat: 10.7560, lng: 106.6290 },
                 region: "hcm".to_string(),
                 provider: "vinbus".to_string(),
             },
             crate::models::Station {
                 id: "hcm_002".to_string(),
                 name: "Bến Xe Miền Đông".to_string(),
-                coord: Coord {
-                    lat: 10.8050,
-                    lng: 106.7310,
-                },
+                coord: Coord { lat: 10.8050, lng: 106.7310 },
                 region: "hcm".to_string(),
                 provider: "vinbus".to_string(),
             },
             crate::models::Station {
                 id: "hcm_003".to_string(),
                 name: "Bến Xe Chợ Lớn".to_string(),
-                coord: Coord {
-                    lat: 10.7560,
-                    lng: 106.6640,
-                },
+                coord: Coord { lat: 10.7560, lng: 106.6640 },
                 region: "hcm".to_string(),
                 provider: "vinbus".to_string(),
             },
@@ -348,10 +382,7 @@ impl DemoProvider {
                 vehicle_id: "60B".to_string(),
                 route_id: "01A".to_string(),
                 route_no: Some("01A".to_string()),
-                coord: Coord {
-                    lat: 21.0400,
-                    lng: 105.8000,
-                },
+                coord: Coord { lat: 21.0400, lng: 105.8000 },
                 speed_kmh: 32.0,
                 heading: Some(45.0),
                 status: "running".to_string(),
@@ -366,10 +397,7 @@ impl DemoProvider {
                 vehicle_id: "45C".to_string(),
                 route_id: "01A".to_string(),
                 route_no: Some("01A".to_string()),
-                coord: Coord {
-                    lat: 21.0300,
-                    lng: 105.7900,
-                },
+                coord: Coord { lat: 21.0300, lng: 105.7900 },
                 speed_kmh: 18.0,
                 heading: Some(90.0),
                 status: "running".to_string(),
@@ -385,10 +413,7 @@ impl DemoProvider {
                 vehicle_id: "12A".to_string(),
                 route_id: "05B".to_string(),
                 route_no: Some("05B".to_string()),
-                coord: Coord {
-                    lat: 21.0500,
-                    lng: 105.7800,
-                },
+                coord: Coord { lat: 21.0500, lng: 105.7800 },
                 speed_kmh: 8.0,
                 heading: Some(180.0),
                 status: "stopped".to_string(),
@@ -410,10 +435,7 @@ impl DemoProvider {
                 vehicle_id: "88X".to_string(),
                 route_id: "15".to_string(),
                 route_no: Some("15".to_string()),
-                coord: Coord {
-                    lat: 10.7800,
-                    lng: 106.6800,
-                },
+                coord: Coord { lat: 10.7800, lng: 106.6800 },
                 speed_kmh: 25.0,
                 heading: None,
                 status: "running".to_string(),
@@ -428,10 +450,7 @@ impl DemoProvider {
                 vehicle_id: "33T".to_string(),
                 route_id: "15".to_string(),
                 route_no: Some("15".to_string()),
-                coord: Coord {
-                    lat: 10.7600,
-                    lng: 106.6500,
-                },
+                coord: Coord { lat: 10.7600, lng: 106.6500 },
                 speed_kmh: 12.0,
                 heading: None,
                 status: "running".to_string(),
@@ -479,19 +498,13 @@ impl Provider for GsmProvider {
 /// GSM-specific inherent methods (not part of the Provider trait)
 impl GsmProvider {
     pub fn get_device_location(&self, device_id: &str) -> Result<serde_json::Value, ProviderError> {
-        info!(
-            "[GreenSM] Fetching device location for device_id={}",
-            device_id
-        );
+        info!("[GreenSM] Fetching device location for device_id={}", device_id);
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| ProviderError::Http(e.to_string()))?;
-        let url = format!(
-            "https://api.gsm-api.net/broadcasting/v1/public/location/{}",
-            device_id
-        );
+        let url = format!("https://api.gsm-api.net/broadcasting/v1/public/location/{}", device_id);
         info!("[GreenSM] GET {}", url);
         let value: serde_json::Value = client
             .get(&url)
@@ -619,10 +632,7 @@ fn bus_from_json_value(v: &serde_json::Value) -> Option<Bus> {
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())?;
 
-    let route_no = v
-        .get("routeNo")
-        .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
+    let route_no = v.get("routeNo").and_then(|x| x.as_str()).map(|s| s.to_string());
     let route_id = route_no.clone().unwrap_or_else(|| vehicle_id.clone());
 
     let lat = v
@@ -639,11 +649,7 @@ fn bus_from_json_value(v: &serde_json::Value) -> Option<Bus> {
 
     let speed_kmh = v.get("speed").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32;
     let heading = v.get("heading").and_then(|x| x.as_f64()).map(|x| x as f32);
-    let status = v
-        .get("status")
-        .and_then(|x| x.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("unknown").to_string();
     let last_update = v
         .get("lastServerUpdateTime")
         .and_then(|x| x.as_i64())
@@ -663,9 +669,6 @@ fn bus_from_json_value(v: &serde_json::Value) -> Option<Bus> {
         status,
         last_update,
         distance_to_next_stop_m,
-        current_stop_id: v
-            .get("stopId")
-            .and_then(|x| x.as_str())
-            .map(|s| s.to_string()),
+        current_stop_id: v.get("stopId").and_then(|x| x.as_str()).map(|s| s.to_string()),
     })
 }

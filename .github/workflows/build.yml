@@ -68,6 +68,7 @@ jobs:
           name: Release ${{ github.ref }}
           files: |
             target/release/tracker-cli.exe
+            target/release/tracker-desktop.exe
             target/release/tracker-web.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

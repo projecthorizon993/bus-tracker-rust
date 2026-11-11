@@ -5,14 +5,18 @@ Built in Rust, compiled on Windows PC first, cross-platform ready.
 
 ## Providers (from decompiled apps)
 
-| Provider | Region | Endpoint | Key |
-|----------|--------|----------|-----|
-| VinBus | Hanoi (`hn`) | `vbcore-api.vinbus.vn` | `auth-key` extracted |
-| VinBus | Ho Chi Minh City (`hcm`) | `vbcore-api.vinbus.vn` | `auth-key` extracted |
-| GreenSM / Xanh SM | All | `api.gsm-api.net` | `x-api-key` extracted |
-| **iHanoi Traffic Cameras** | **Hanoi (`hn`)** | **`cds.hanoi.gov.vn`** | **public (free)** |
+| Provider | Region | Endpoint | Key | Status |
+|----------|--------|----------|-----|--------|
+| VinBus | Hanoi (`hn`) | `api.busmap.vn` / `vbcore-api.vinbus.vn` | `auth-key` extracted | ⚠️ Endpoint may return 404 — demo fallback active |
+| VinBus | Ho Chi Minh City (`hcm`) | `api.busmap.vn` / `vbcore-api.vinbus.vn` | `auth-key` extracted | ⚠️ Endpoint may return 404 — demo fallback active |
+| GreenSM / Xanh SM | All | `api.gsm-api.net` | `x-api-key` extracted | ⚠️ Returns 401 Unauthorized — demo fallback active |
+| **iHanoi Traffic Cameras** | **Hanoi (`hn`)** | **`cds.hanoi.gov.vn`** | **public (free)** | ✅ Working |
 
 BusMap (`api.busmap.vn`, `api.busmap.city`) is used for live bus GPS, route info, and station ETA — endpoints extracted from the decompiled BusMap app.
+
+### Demo Fallback
+
+When live APIs are unreachable (VinBus 404, GreenSM 401, network issues), the app automatically falls back to **demo mode** with sample Hanoi and Ho Chi Minh City stations and buses. The desktop UI shows a `▲ DEMO (API unreachable)` badge in the status bar when demo data is active. All ETA estimation, congestion, and route planning features work in demo mode.
 
 ## Build & Run (Windows PC)
 
@@ -35,7 +39,9 @@ cargo build --release
 cargo run --release -p tracker-cli
 ```
 
-Release `.exe` appears at: `target/release/tracker-cli.exe`
+Release `.exe` binaries appear at:
+- `target/release/tracker-cli.exe` — command-line interface
+- `target/release/tracker-desktop.exe` — desktop GUI (egui, recommended)
 
 ## CLI Usage
 
@@ -99,7 +105,7 @@ Congestion data comes from **iHanoi** (`cds.hanoi.gov.vn`) — Hanoi's official 
 
 ## GitHub Actions
 
-Push to `main` triggers a Windows build via GitHub Actions. Download `tracker-cli.exe` from the build artifacts.
+Push to `main` triggers a Windows build via GitHub Actions. Download `tracker-cli.exe`, `tracker-desktop.exe`, and `tracker-web.exe` from the build artifacts or GitHub Releases (tagged `v*`).
 
 ## Cross-Platform
 
