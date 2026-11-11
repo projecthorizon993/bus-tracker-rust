@@ -382,10 +382,13 @@
                 dashArray: '10, 10'
             }).addTo(map);
 
-            const distM = haversine(o.lat, o.lng, d.lat, d.lng);
-            map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+            // Only fit bounds on first draw, not every ETA computation
+            if (!window.__routeDrawn) {
+                map.fitBounds(routeLine.getBounds(), { padding: [60, 60] });
+                window.__routeDrawn = true;
+            }
 
-            // Update ETA details with straight-line distance
+            const distM = haversine(o.lat, o.lng, d.lat, d.lng);
             const detailsEl = document.getElementById('etaDetails');
             if (detailsEl) {
                 detailsEl.textContent = `Distance: ${(distM/1000).toFixed(1)} km (straight line)`;
