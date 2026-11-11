@@ -279,7 +279,7 @@
         function renderBuses() {
             const list = document.getElementById('busList');
             const countEl = document.getElementById('busCount');
-            busMarkers.forEach(m => map.removeLayer(m));
+            Object.values(busMarkers).forEach(m => map.removeLayer(m));
             busMarkers = {};
             list.innerHTML = '';
             countEl.textContent = buses.length + ' bus' + (buses.length !== 1 ? 'es' : '');
@@ -387,20 +387,20 @@
                 loadDemo();
             }
 
+            // Safety: ensure stations and buses are arrays
+            if (!Array.isArray(stations)) stations = [];
+            if (!Array.isArray(buses)) buses = [];
+
             populateStations();
             renderBuses();
             if (btn.disabled === false) computeETA();
         }
 
         async function fetchVinBus() {
-            // Try BusMap city route list API (works!)
+            // Try BusMap city route list API (simple headers only to avoid CORS preflight)
             const routeUrl = `${CONFIG.vinbus.baseUrl}${CONFIG.vinbus.endpoints.routes}?regionCode=${currentRegion}`;
             const routeResp = await fetch(routeUrl, {
                 headers: {
-                    'package-name': 'com.t7.busmaphn',
-                    'client-version': 'android|20620',
-                    'device-id': 'web-' + Date.now(),
-                    'language': 'vi',
                     'Accept': 'application/json'
                 }
             });
@@ -410,7 +410,6 @@
             // Build stations from route data
             const stationMap = new Map();
             routes.forEach(r => {
-                // Use route name as a pseudo-station for demo purposes
                 const id = 'route_' + (r.routeId || r.id || Math.random());
                 stationMap.set(id, {
                     id: id,
@@ -429,10 +428,6 @@
                 busPromises.push(
                     fetch(`${CONFIG.vinbus.endpoints.estimate}?regionCode=${currentRegion}&stationId=${sid}&group=0`, {
                         headers: {
-                            'auth-key': CONFIG.vinbus.authKey,
-                            'client-version': 'android|690',
-                            'device-id': 'web-' + Date.now(),
-                            'language': 'en',
                             'Accept': 'application/json',
                             'User-Agent': 'VinBus/1.0 (Android)'
                         }
