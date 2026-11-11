@@ -204,7 +204,7 @@
         };
 
         // ============ State ============
-        let map, busMarkers = {};
+        let map, busMarkers = {}, stationMarkers = {}, routeLine = null;
         let currentProvider = 'vinbus';
         let currentRegion = 'hn';
         let useDemo = false;
@@ -345,6 +345,60 @@
             });
         }
 
+        // ============ Station Markers ============
+        function renderStations() {
+            // Clear existing station markers
+            Object.values(stationMarkers).forEach(m => map.removeLayer(m));
+            stationMarkers = {};
+
+            stations.forEach(s => {
+                if (!s.lat || !s.lng) return;
+                const marker = L.circleMarker([s.lat, s.lng], {
+                    radius: 8,
+                    fillColor: '#0078d4',
+                    color: '#ffffff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }).addTo(map);
+                stationMarkers[s.id] = marker;
+                marker.bindPopup(`<b>${s.name}</b><br>${s.routeNo || 'Station'}<br>${s.address || ''}`);
+            });
+        }
+
+        // ============ Route Line ============
+        function drawRoute(o, d) {
+            // Remove existing route line
+            if (routeLine) {
+                map.removeLayer(routeLine);
+                routeLine = null;
+            }
+            if (!o || !d || !o.lat || !o.lng || !d.lat || !d.lng) return;
+
+            routeLine = L.polyline([[o.lat, o.lng], [d.lat, d.lng]], {
+                color: '#0078d4',
+                weight: 4,
+                opacity: 0.8,
+                dashArray: '10, 10'
+            }).addTo(map);
+
+            const distM = haversine(o.lat, o.lng, d.lat, d.lng);
+            map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+
+            // Update ETA details with straight-line distance
+            const detailsEl = document.getElementById('etaDetails');
+            if (detailsEl) {
+                detailsEl.textContent = `Distance: ${(distM/1000).toFixed(1)} km (straight line)`;
+            }
+        }
+
+        function clearRoute() {
+            if (routeLine) {
+                map.removeLayer(routeLine);
+                routeLine = null;
+            }
+        }
+
         // ============ ETA Engine ============
         function computeETA() {
             const oId = document.getElementById('originSelect').value;
@@ -354,6 +408,9 @@
             const o = stations.find(s => s.id === oId);
             const d = stations.find(s => s.id === dId);
             if (!o || !d) return;
+
+            // Draw blue route line between stations
+            drawRoute(o, d);
 
             document.getElementById('etaFrom').textContent = o.name;
             document.getElementById('etaTo').textContent = d.name;
@@ -419,6 +476,8 @@
             if (!Array.isArray(buses)) buses = [];
 
             populateStations();
+            renderStations();
+            clearRoute();
             renderBuses();
             if (btn.disabled === false) computeETA();
         }
@@ -483,6 +542,7 @@
 
             // Use routes as stations for ETA
             stations = Array.from(stationMap.values());
+            renderStations();
             setStatus(true, 'Live API (BusMap via Worker)', false);
         }
 
@@ -512,6 +572,7 @@
                 cameraId: c.camera_id,
                 address: c.address || ''
             }));
+            renderStations();
 
             // Create pseudo-buses from cameras with slight offset for map display
             const now = Date.now();
@@ -540,6 +601,7 @@
                 speed: b.speed, heading: b.heading, status: b.status, dist: b.dist,
                 stopId: b.stopId, update: b.update, confidence: 'Medium'
             }));
+            renderStations();
             setStatus(false, 'Demo mode', true);
         }
 
